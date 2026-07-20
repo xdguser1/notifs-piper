@@ -1,4 +1,4 @@
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone)]
 pub struct LogSettings {
     bold: bool,
     underline: bool,
@@ -10,35 +10,19 @@ pub struct LogSettings {
 
 impl LogSettings {
     fn underline(&self) -> &'static str {
-        if self.underline {
-            "\\e[4m"
-        } else {
-            ""
-        }
+        if self.underline { "\\e[4m" } else { "" }
     }
 
     fn bold(&self) -> &'static str {
-        if self.bold {
-            "\\e[1m"
-        } else {
-            ""
-        }
+        if self.bold { "\\e[1m" } else { "" }
     }
 
     fn blinking(&self) -> &'static str {
-        if self.blinking {
-            "\\e[5m"
-        } else {
-            ""
-        }
+        if self.blinking { "\\e[5m" } else { "" }
     }
 
     fn reverse(&self) -> &'static str {
-        if self.reverse {
-            "\\e[7m"
-        } else {
-            ""
-        }
+        if self.reverse { "\\e[7m" } else { "" }
     }
 
     pub fn bash_settings(&self) -> String {
@@ -127,7 +111,6 @@ impl Colors {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
 pub struct Logger {
     settings: LogSettings,
 }
@@ -179,17 +162,27 @@ impl Logger {
             "{}{}{}",
             self.settings.bash_settings(),
             text,
-            LogSettings::reset()
+            LogSettings::reset(),
         );
     }
 
     pub fn println(&self, text: &str) {
-        println!(
+        self.print(text);
+        println!();
+    }
+
+    pub fn err(&self, text: &str) {
+        eprint!(
             "{}{}{}",
             self.settings.bash_settings(),
             text,
-            LogSettings::reset()
+            LogSettings::reset(),
         );
+    }
+
+    pub fn errln(&self, text: &str) {
+        self.err(text);
+        eprintln!();
     }
 
     pub fn info(text: &str) {
@@ -201,7 +194,7 @@ impl Logger {
     }
 
     pub fn error(text: &str) {
-        Logger::ERROR_LOGGER.println(format!("[ERROR]: {}", text).as_str());
+        Logger::ERROR_LOGGER.errln(format!("[ERROR]: {}", text).as_str());
     }
 
     pub fn debug(text: &str) {
