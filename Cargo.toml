@@ -1,0 +1,9 @@
+[package]
+name = "notifs-piper"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = "1.0"
+tokio = { version = "1.53", features = ["net"] }
+zbus = { version = "5.18", features = ["tokio"] }
