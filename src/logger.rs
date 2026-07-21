@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 #[derive(Copy, Clone)]
 pub struct LogSettings {
     bold: bool,
@@ -39,6 +41,8 @@ impl LogSettings {
     }
 }
 
+// Constants. Prefer screaming snake case
+#[allow(nonstandard_style)]
 #[derive(Copy, Clone, Debug)]
 pub enum Colors {
     BLACK = 0,
