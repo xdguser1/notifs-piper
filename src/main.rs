@@ -1,13 +1,6 @@
-mod dbus;
-mod jobs;
-mod listener;
-mod logger;
-mod manager;
+mod server;
+mod utils;
 
 fn main() {
-    // TODO:
-    // INIT: manager::GLOBAL_MANAGER
-    // INIT: dbus::CAPABILITIES
-    // INIT: listener::GLOBAL_LISTENER
     println!("Hello, world!");
 }
