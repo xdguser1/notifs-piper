@@ -11,7 +11,7 @@ use crate::utils::logger::Logger;
 
 use super::jobs::{Broadcast, Desc, JobDesc, Pid, SyncList};
 
-const CAPABILITIES: OnceCell<Vec<&'static str>> = OnceCell::new();
+const CAPABILITIES: [&'static str; 0] = [];
 
 #[derive(Serialize, Deserialize)]
 pub struct NotificationEvent {
@@ -147,7 +147,7 @@ impl NotificationsWrapper {
     }
 
     pub async fn get_capabilities(&self) -> Vec<&'static str> {
-        CAPABILITIES.get().unwrap().clone()
+        CAPABILITIES.to_vec()
     }
 
     #[zbus(out_args("name", "vendor", "version", "spec_version"))]
