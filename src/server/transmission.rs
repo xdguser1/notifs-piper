@@ -1,6 +1,4 @@
-use std::string::ToString;
-
-use super::jobs::{FulfilledJob, JobDesc, Pid};
+use super::jobs::{FulfilledJob, Pid};
 
 pub trait Payload {
     fn from_str_static(data: &str) -> Result<Self, PayloadError>
@@ -8,6 +6,90 @@ pub trait Payload {
         Self: Sized;
 
     fn to_string(&self) -> String;
+}
+
+#[derive(Copy, Clone)]
+pub enum TransmissionType {
+    Incoming(Pid),
+    Outgoing(Pid),
+    Error,
+}
+
+impl Payload for TransmissionType {
+    fn from_str_static(data: &str) -> Result<Self, PayloadError> {
+        if data == "Err" {
+            return Ok(TransmissionType::Error);
+        }
+
+        let (first, second) = data.split_once('#').ok_or(PayloadError::new(
+            data.to_owned(),
+            "'#' was not found in split.".to_owned(),
+            String::new(),
+        ))?;
+
+        let second = second.parse::<Pid>().map_err(|err| {
+            PayloadError::new(
+                second.to_owned(),
+                "Error while parsing 'pid' for 'TransmissionType'".to_owned(),
+                err.to_string(),
+            )
+        })?;
+
+        match first {
+            "Inc" => Ok(TransmissionType::Incoming(second)),
+            "Out" => Ok(TransmissionType::Outgoing(second)),
+            _ => Err(PayloadError::new(
+                first.to_owned(),
+                "Invalid type for 'TransmissionType' enum".to_owned(),
+                String::new(),
+            )),
+        }
+    }
+
+    fn to_string(&self) -> String {
+        match *self {
+            TransmissionType::Incoming(pid) => format!("Inc#{}", pid),
+            TransmissionType::Outgoing(pid) => format!("Out#{}", pid),
+            TransmissionType::Error => "Err".to_owned(),
+        }
+    }
+}
+
+pub struct Transmission {
+    pub typ: TransmissionType,
+    pub data: String,
+}
+
+impl Transmission {
+    pub const fn new(typ: TransmissionType, data: String) -> Transmission {
+        Transmission { typ, data }
+    }
+
+    pub fn from_fulfilled(ft: &FulfilledJob, pid: Pid) -> Transmission {
+        Transmission {
+            typ: TransmissionType::Outgoing(pid),
+            data: ft.to_string(),
+        }
+    }
+}
+
+impl Payload for Transmission {
+    fn from_str_static(data: &str) -> Result<Self, PayloadError> {
+        let (first, second) = data.split_once("##").ok_or(PayloadError::new(
+            data.to_owned(),
+            "'##' was not found in split.".to_owned(),
+            String::new(),
+        ))?;
+
+        Ok(Transmission {
+            typ: TransmissionType::from_str_static(first)?,
+            data: second.to_owned(),
+        })
+    }
+
+    fn to_string(&self) -> String {
+        format!("{}##{}", self.typ.to_string(), self.data)
+    }
 }
 
 pub struct PayloadError {
@@ -23,82 +105,5 @@ impl PayloadError {
             error,
             details,
         }
-    }
-}
-
-pub struct Transmission {
-    pub from: Pid,
-    pub payload: Box<dyn Payload>,
-}
-
-impl Transmission {
-    pub fn new(from: Pid, payload: Box<dyn Payload>) -> Transmission {
-        Transmission { from, payload }
-    }
-}
-
-impl Payload for Transmission {
-    fn from_str_static(data: &str) -> Result<Transmission, PayloadError> {
-        let (from, rest) = data.split_once("###").ok_or(PayloadError::new(
-            data.to_owned(),
-            "'###' was not found in split.".to_owned(),
-            String::new(),
-        ))?;
-
-        let pid = from.parse::<Pid>().map_err(|err| {
-            PayloadError::new(
-                from.to_owned(),
-                "Error while parsing 'from' in 'Transmission'".to_owned(),
-                err.to_string(),
-            )
-        })?;
-
-        Ok(Transmission::new(
-            pid,
-            match pid {
-                0 => Box::new(FulfilledJob::from_str_static(rest)?),
-                _ => Box::new(JobDesc::from_str_static(rest)?),
-            },
-        ))
-    }
-
-    fn to_string(&self) -> String {
-        format!("{}###{}", self.from, self.payload.to_string())
-    }
-}
-
-pub struct FulfilledTransmission {
-    pub to: Pid,
-    pub fulfilled: FulfilledJob,
-}
-
-impl FulfilledTransmission {
-    pub fn new(to: Pid, fulfilled: FulfilledJob) -> FulfilledTransmission {
-        FulfilledTransmission { to, fulfilled }
-    }
-}
-
-impl Payload for FulfilledTransmission {
-    fn from_str_static(data: &str) -> Result<Self, PayloadError> {
-        let (to, ful) = data.split_once("#").ok_or(PayloadError::new(
-            data.to_owned(),
-            "'#' was not found in split.".to_owned(),
-            String::new(),
-        ))?;
-
-        Ok(FulfilledTransmission::new(
-            to.parse::<Pid>().map_err(|err| {
-                PayloadError::new(
-                    to.to_owned(),
-                    "Error parsing 'to' for 'FulfilledTransmission'".to_owned(),
-                    err.to_string(),
-                )
-            })?,
-            FulfilledJob::from_str_static(ful)?,
-        ))
-    }
-
-    fn to_string(&self) -> String {
-        format!("{}#{}", self.to, self.fulfilled.to_string())
     }
 }

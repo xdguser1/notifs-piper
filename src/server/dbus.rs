@@ -1,4 +1,3 @@
-use std::cell::OnceCell;
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
@@ -9,17 +8,19 @@ use zbus::{interface, object_server::SignalEmitter, zvariant::OwnedValue};
 
 use crate::utils::logger::Logger;
 
-use super::jobs::{Broadcast, Desc, JobDesc, Pid, SyncList};
+use super::jobs::{Broadcast, Close, Desc, JobDesc, Pid, SyncList};
 
 const CAPABILITIES: [&'static str; 0] = [];
 
+pub type Nid = u32;
+
 #[derive(Serialize, Deserialize)]
 pub struct NotificationEvent {
-    id: u32,
+    id: Nid,
     time: u128,
     pub read: bool,
     app_name: String,
-    replaces_id: u32,
+    replaces_id: Nid,
     app_icon: String,
     summary: String,
     body: String,
@@ -28,13 +29,13 @@ pub struct NotificationEvent {
 }
 
 impl NotificationEvent {
-    pub fn get_id(&self) -> u32 {
+    pub fn get_id(&self) -> Nid {
         self.id
     }
 }
 
 pub struct Notifications {
-    counter: u32,
+    counter: Nid,
     sync_list: SyncList,
 }
 
@@ -63,7 +64,7 @@ impl Notifications {
         }
     }
 
-    pub fn new(counter: u32, sync_list: &SyncList) -> Notifications {
+    pub fn new(counter: Nid, sync_list: &SyncList) -> Notifications {
         Notifications {
             counter: counter,
             sync_list: Arc::clone(sync_list),
@@ -73,13 +74,13 @@ impl Notifications {
     pub fn notify(
         &mut self,
         app_name: String,
-        replaces_id: u32,
+        replaces_id: Nid,
         app_icon: String,
         summary: String,
         body: String,
         actions: Vec<String>,
         hints: Vec<HashMap<String, OwnedValue>>,
-    ) -> u32 {
+    ) -> Nid {
         let id = if replaces_id == 0 {
             self.counter += 1;
             self.counter
@@ -109,9 +110,8 @@ impl Notifications {
         id
     }
 
-    pub fn close_notification(&self, pid: Pid) {
-        // self.push_job(Close { pid: pid });
-        todo!()
+    pub fn close_notification(&self, nid: Nid) {
+        self.push_job(JobDesc::new(Box::new(Close(nid)), Desc::new(0, 0)));
     }
 }
 
@@ -124,7 +124,7 @@ impl NotificationsWrapper {
     pub async fn notify(
         &mut self,
         app_name: String,
-        replaces_id: u32,
+        replaces_id: Nid,
         app_icon: String,
         summary: String,
         body: String,
@@ -142,7 +142,7 @@ impl NotificationsWrapper {
         )
     }
 
-    pub async fn close_notification(&self, id: u32) {
+    pub async fn close_notification(&self, id: Nid) {
         self.inner.close_notification(id);
     }
 

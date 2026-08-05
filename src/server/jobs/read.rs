@@ -1,6 +1,6 @@
 use super::super::manager::{LogCountType, LogsManager};
 use super::super::transmission::{Payload, PayloadError};
-use super::{Desc, Flags, FulfilledJob, Job};
+use super::{Desc, Flags, FulfilledJob, FulfilledJobResultType, Job};
 
 pub struct Read {
     start: LogCountType,
@@ -15,14 +15,17 @@ impl Read {
 
 impl Job for Read {
     fn execute(self: Box<Self>, desc: &Desc, manager: &mut LogsManager) -> FulfilledJob {
-        FulfilledJob(Ok(Some(
-            serde_json::to_string(manager.read_logs(
-                self.start,
-                self.end,
-                Flags::SILENT.is(desc.flags),
-            ))
-            .unwrap(),
-        )))
+        FulfilledJob::new(
+            Ok(Some(
+                serde_json::to_string(manager.read_logs(
+                    self.start,
+                    self.end,
+                    Flags::SILENT.is(desc.flags),
+                ))
+                .unwrap(),
+            )),
+            FulfilledJobResultType::Notifications,
+        )
     }
 
     fn canonical_name(&self) -> &'static str {

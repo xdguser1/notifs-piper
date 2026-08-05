@@ -1,4 +1,4 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::fs;
 use std::io::{self, ErrorKind};
 use std::sync::Arc;
@@ -8,8 +8,8 @@ use tokio::net::UnixStream;
 use crate::utils::{ds::ImplicationWrapper, logger::Logger};
 
 use super::dbus::NotificationEvent;
-use super::jobs::{FlagsRepr, SyncList};
-use super::transmission::{FulfilledTransmission, Payload, Transmission};
+use super::jobs::{FlagsRepr, FulfilledJob, Pid, SyncList};
+use super::transmission::{Payload, Transmission};
 
 pub type Watcher = ImplicationWrapper<u32, FlagsRepr>;
 pub type LogCountType = u32;
@@ -29,10 +29,9 @@ pub struct LogsConfig {
     pub max_logs: LogCountType,
 }
 
-// May be out of date with what is in logs_path
-// Which means ==> NOT ACID COMPLIANT
+// There is no guarantee that logs_buffer is synchronised with
+// the logs_path file. This is not ACID compliant.
 pub struct LogsManager {
-    pub(super) active_processes: HashSet<Watcher>,
     sync_list: SyncList,
     listener_path: String,
     logs_path: String,
@@ -50,9 +49,9 @@ impl LogsManager {
         .map_err(|err| LogsDBErrorType::ParseError(err))
     }
 
-    async fn send(&self, ful: FulfilledTransmission) -> io::Result<()> {
+    async fn send(&self, ful: &FulfilledJob, pid: Pid) -> io::Result<()> {
         let us = UnixStream::connect(&self.listener_path).await?;
-        let stg = Transmission::new(0, Box::new(ful)).to_string();
+        let stg = Payload::to_string(&Transmission::from_fulfilled(ful, pid));
         let mut trb = stg.as_bytes();
 
         loop {
@@ -168,7 +167,6 @@ impl LogsManager {
         };
 
         LogsManager {
-            active_processes: HashSet::new(),
             sync_list: Arc::clone(sync_list),
             listener_path: listener_path.to_owned(),
             logs_path: logs_path.to_owned(),
@@ -238,13 +236,17 @@ impl LogsManager {
 
         drop(vd);
 
-        let ft = FulfilledTransmission::new(jd.desc.pid, jd.cmd.execute(&jd.desc, self));
+        let fj = jd.cmd.execute(&jd.desc, self);
 
-        let err = ft.fulfilled.0.is_err();
+        if fj.result.as_ref().is_ok_and(|v| v.is_none()) {
+            return Ok(ExecState::Executed);
+        }
 
-        tokio::runtime::Runtime::new()?.block_on(self.send(ft))?;
+        tokio::runtime::Builder::new_current_thread()
+            .build()?
+            .block_on(self.send(&fj, jd.desc.pid))?;
 
-        Ok(if err {
+        Ok(if fj.result.is_err() {
             ExecState::Error
         } else {
             ExecState::Executed

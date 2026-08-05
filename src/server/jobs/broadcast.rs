@@ -1,7 +1,7 @@
 use super::super::dbus::NotificationEvent;
 use super::super::manager::LogsManager;
 use super::super::transmission::{Payload, PayloadError};
-use super::{Desc, FulfilledJob, Job};
+use super::{Desc, FulfilledJob, FulfilledJobResultType, Job};
 
 pub struct Broadcast {
     event: NotificationEvent,
@@ -19,11 +19,11 @@ impl Job for Broadcast {
         manager.append_notification(self.event);
         if let Err(x) = manager
             .write_logs()
-            .map_err(|err| FulfilledJob(Err(err.to_string())))
+            .map_err(|err| FulfilledJob::new(Err(err.to_string()), FulfilledJobResultType::Other))
         {
-            FulfilledJob(Err(x.to_string()))
+            FulfilledJob::new(Err(x.to_string()), FulfilledJobResultType::Other)
         } else {
-            FulfilledJob(Ok(Some(broadcast)))
+            FulfilledJob::new(Ok(Some(broadcast)), FulfilledJobResultType::Notifications)
         }
     }
 
