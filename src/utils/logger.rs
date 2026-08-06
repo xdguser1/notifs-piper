@@ -12,19 +12,19 @@ pub struct LogSettings {
 
 impl LogSettings {
     fn underline(&self) -> &'static str {
-        if self.underline { "\\e[4m" } else { "" }
+        if self.underline { "\x1b[4m" } else { "" }
     }
 
     fn bold(&self) -> &'static str {
-        if self.bold { "\\e[1m" } else { "" }
+        if self.bold { "\x1b[1m" } else { "" }
     }
 
     fn blinking(&self) -> &'static str {
-        if self.blinking { "\\e[5m" } else { "" }
+        if self.blinking { "\x1b[5m" } else { "" }
     }
 
     fn reverse(&self) -> &'static str {
-        if self.reverse { "\\e[7m" } else { "" }
+        if self.reverse { "\x1b[7m" } else { "" }
     }
 
     pub fn bash_settings(&self) -> String {
@@ -48,58 +48,23 @@ pub enum Colors {
     BLACK = 0,
     RED = 1,
     GREEN = 2,
-    BROWN = 3,
+    YELLOW = 3,
     BLUE = 4,
-    PURPLE = 5,
+    MAGENTA = 5,
     CYAN = 6,
-    LIGHT_GRAY = 7,
-    DARK_GRAY = 8,
-    LIGHT_RED = 9,
-    LIGHT_GREEN = 10,
-    YELLOW = 11,
-    LIGHT_BLUE = 12,
-    LIGHT_PURPLE = 13,
-    LIGHT_CYAN = 14,
-    WHITE = 15,
+    WHITE = 7,
+    DEFAULT = 8,
 }
 
 impl Colors {
-    const FG_STRINGS: [&str; 16] = [
-        "\\e[30m",
-        "\\e[31m",
-        "\\e[32m",
-        "\\e[33m",
-        "\\e[34m",
-        "\\e[35m",
-        "\\e[36m",
-        "\\e[37m",
-        "\\e[1;30m",
-        "\\e[1;31m",
-        "\\e[1;32m",
-        "\\e[1;33m",
-        "\\e[1;34m",
-        "\\e[1;35m",
-        "\\e[1;36m",
-        "\\e[1;37m",
+    const FG_STRINGS: [&str; 9] = [
+        "\x1b[30m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m",
+        "\x1b[37m", "\x1b[39m",
     ];
 
-    const BG_STRINGS: [&str; 16] = [
-        "\\e[40m",
-        "\\e[41m",
-        "\\e[42m",
-        "\\e[43m",
-        "\\e[44m",
-        "\\e[45m",
-        "\\e[46m",
-        "\\e[47m",
-        "\\e[1;40m",
-        "\\e[1;41m",
-        "\\e[1;42m",
-        "\\e[1;43m",
-        "\\e[1;44m",
-        "\\e[1;45m",
-        "\\e[1;46m",
-        "\\e[1;47m",
+    const BG_STRINGS: [&str; 9] = [
+        "\x1b[40m", "\x1b[41m", "\x1b[42m", "\x1b[43m", "\x1b[44m", "\x1b[45m", "\x1b[46m",
+        "\x1b[47m", "\x1b[49m",
     ];
 
     pub fn fg(&self) -> &str {
@@ -111,7 +76,7 @@ impl Colors {
     }
 
     pub fn reset() -> &'static str {
-        "\\e[0m"
+        "\x1b[0m"
     }
 }
 
@@ -125,12 +90,12 @@ impl Logger {
         underline: false,
         blinking: false,
         reverse: false,
-        bg: Colors::BLACK,
+        bg: Colors::DEFAULT,
         fg: Colors::WHITE,
     };
 
     const INFO_LOGGER: Logger = Logger::custom(&LogSettings {
-        fg: Colors::LIGHT_BLUE,
+        fg: Colors::CYAN,
         ..Logger::DEFAULT_SETTINGS
     });
 
