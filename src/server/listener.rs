@@ -1,9 +1,12 @@
 use std::collections::HashMap;
 use std::io::{self, Error, ErrorKind};
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    mpsc::{Sender, channel},
+};
 
 use tokio::net::{UnixListener, UnixStream};
-use tokio::task::{self, JoinSet};
+use tokio::task::JoinSet;
 
 use crate::utils::logger::Logger;
 
@@ -12,11 +15,12 @@ use super::transmission::{Payload, Transmission, TransmissionType};
 
 pub struct Listener {
     active_processes: Arc<Mutex<HashMap<u32, UnixStream>>>,
-    listening_processes: Arc<Mutex<HashMap<u32, UnixStream>>>,
+    listening_processes: Arc<tokio::sync::Mutex<HashMap<u32, UnixStream>>>,
     // `String` is not strictly required, since a lifetime could do the job, but better
     // for future features, if any require a owned path.
     listening_path: String,
     sync_list: SyncList,
+    notify: Sender<()>,
 }
 
 impl Listener {
@@ -81,7 +85,7 @@ impl Listener {
         {
             Logger::error(
                 format!(
-                    concat!("Could not send back error to client.", "Error type: {}"),
+                    "Could not send back error to client.\nError type: {}",
                     errl.to_string(),
                 )
                 .as_str(),
@@ -89,12 +93,13 @@ impl Listener {
         }
     }
 
-    pub fn new(listening_path: &str, sync_list: SyncList) -> Listener {
+    pub fn new(listening_path: &str, sync_list: &SyncList, notify: Sender<()>) -> Listener {
         Listener {
             active_processes: Arc::new(Mutex::new(HashMap::new())),
-            listening_processes: Arc::new(Mutex::new(HashMap::new())),
+            listening_processes: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             listening_path: listening_path.to_owned(),
-            sync_list: Arc::clone(&sync_list),
+            sync_list: Arc::clone(sync_list),
+            notify,
         }
     }
 
@@ -103,11 +108,21 @@ impl Listener {
 
         let listener = UnixListener::bind(&self.listening_path)?;
         let mut active = JoinSet::new();
+        let (panic, abort) = channel::<()>();
+
         loop {
+            if abort.try_recv().is_ok() {
+                return Err(io::Error::new(ErrorKind::Other, "Details in stdout."));
+            }
+
             let us = listener.accept().await?.0;
+
             let lp = Arc::clone(&self.listening_processes);
             let ap = Arc::clone(&self.active_processes);
             let sl = Arc::clone(&self.sync_list);
+
+            let sn = self.notify.clone();
+            let pn = panic.clone();
 
             active.spawn(async move {
                 let trans = Listener::read(&us).await;
@@ -129,14 +144,15 @@ impl Listener {
                                 Logger::error(
                                     format!(
                                         concat!(
-                                            "!!FATAL ERROR!! A thread panicked while holding the '{}' lock. Exiting.",
+                                            "!!FATAL ERROR!! A thread panicked while holding the '{}' lock. Exiting.\n",
                                             "Error type: {}",
                                         ),
                                         $lit,
                                         poison.to_string(),
                                     ).as_str()
                                 );
-                                panic!();
+                                pn.send(()).unwrap();
+                                return;
                             },
                         }
                     };
@@ -147,7 +163,7 @@ impl Listener {
                         Listener::send_error(&us, "Current architecture wants the client to manage errors.".to_owned()).await;
                     },
                     TT::Incoming(pid) if trans.data.as_str() == "watch" => {
-                        acquire_lock!(lp, "listening_processes", lock, lock.insert(pid, us));
+                        lp.lock().await.insert(pid, us);
                     },
                     TT::Incoming(pid) => {
                         match JobDesc::from_str_static(trans.data.as_str()) {
@@ -160,29 +176,28 @@ impl Listener {
                                 return;
                             },
                         }
+
+                        // Returns Err if manager panics (deallocates recv).
+                        if let Err(_) = sn.send(()) {
+                            pn.send(()).unwrap();
+                            return;
+                        }
                     },
                     TT::Outgoing(pid) => {
                         if pid == 0 {
-                            task::spawn_local(
-                                async move {
-                                    acquire_lock!(
-                                        lp,
-                                        "listening_processes",
-                                        lock,
-                                        let mut old = Vec::with_capacity(lock.len());
-                                        for value in lock.values() {
-                                            if let Err(_) = Listener::write(
-                                                value,
-                                                &Transmission::new(TransmissionType::Outgoing(pid), trans.data.clone())
-                                            ).await {
-                                                old.push(pid);
-                                            }
-                                        }
-                                        old.iter().for_each(|val| { lock.remove(val); });
-                                    )
+                            // TODO: Add `read <- true` when processes are  listening.
+                            let mut lock = lp.lock().await;
+                            let mut old = Vec::with_capacity(lock.len());
+                            for value in lock.values() {
+                                if let Err(_) = Listener::write(
+                                    value,
+                                    &Transmission::new(TransmissionType::Outgoing(pid), trans.data.clone())
+                                ).await {
+                                    old.push(pid);
                                 }
-                            );
-                            return;
+                            }
+                            old.iter().for_each(|val| { lock.remove(val); });
+                           return;
                         }
 
                         let us = acquire_lock!(
@@ -196,7 +211,7 @@ impl Listener {
                             Logger::error(
                                 format!(
                                     concat!(
-                                        "Could not send data back to process {}",
+                                        "Could not send data back to process {}.\n",
                                         "Error type: {}",
                                     ),
                                     pid,

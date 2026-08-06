@@ -5,13 +5,12 @@ use std::sync::Arc;
 
 use tokio::net::UnixStream;
 
-use crate::utils::{ds::ImplicationWrapper, logger::Logger};
+use crate::utils::logger::Logger;
 
 use super::dbus::NotificationEvent;
-use super::jobs::{FlagsRepr, FulfilledJob, Pid, SyncList};
+use super::jobs::{FulfilledJob, Pid, SyncList};
 use super::transmission::{Payload, Transmission};
 
-pub type Watcher = ImplicationWrapper<u32, FlagsRepr>;
 pub type LogCountType = u32;
 
 pub enum ExecState {
@@ -90,7 +89,7 @@ impl LogsManager {
                     Logger::info(
                         format!(
                             concat!(
-                                "Previous database in '{}' could not be found.",
+                                "Previous database in '{}' could not be found.\n",
                                 "This will create a new file once a notification is send.",
                             ),
                             logs_path,
@@ -101,7 +100,7 @@ impl LogsManager {
                     Logger::error(
                         format!(
                             concat!(
-                                "An error was found when trying to open '{}'.",
+                                "An error was found when trying to open '{}'.\n",
                                 "This process will continue, but has a high chance of crashing once a notification is created.",
                                 "Error type: {}",
                             ),
@@ -115,7 +114,7 @@ impl LogsManager {
             Err(ref err) if let LogsDBErrorType::ParseError(err) = err => {
                 Logger::error(
                     format!(
-                        concat!("Logs in path '{}' could not be parsed.", "Error type: {}",),
+                        "Logs in path '{}' could not be parsed.\nError type: {}",
                         logs_path, err,
                     )
                     .as_str(),
@@ -133,9 +132,9 @@ impl LogsManager {
                     Logger::error(
                         format!(
                             concat!(
-                                "Could not make backup of '{}'.",
-                                "This is highly improbable and likely means this process will crash.",
-                                "To not damage the previous logs and for debugging purposes, this process will panic.",
+                                "Could not make backup of '{}'.\n",
+                                "This is highly improbable and likely means this process will crash.\n",
+                                "To not damage the previous logs and for debugging purposes, this process will panic.\n",
                                 "Error type: {}",
                             ),
                             logs_path,
@@ -149,7 +148,7 @@ impl LogsManager {
                     Logger::error(
                         format!(
                             concat!(
-                                "!!FATAL ERROR!! Could not write to '{}' the logs. Exiting.",
+                                "!!FATAL ERROR!! Could not write to '{}' the logs. Exiting.\n",
                                 "Error type: {}",
                             ),
                             logs_path, err,
@@ -173,6 +172,10 @@ impl LogsManager {
             logs_buffer: buffer,
             logs_config,
         }
+    }
+
+    pub(super) fn iter<'a>(&'a self) -> impl Iterator<Item = &'a NotificationEvent> {
+        self.logs_buffer.iter()
     }
 
     // Warning: we have methods that update the logs buffer, but where this is not called
@@ -243,6 +246,7 @@ impl LogsManager {
         }
 
         tokio::runtime::Builder::new_current_thread()
+            .enable_io()
             .build()?
             .block_on(self.send(&fj, jd.desc.pid))?;
 

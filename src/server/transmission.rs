@@ -36,8 +36,8 @@ impl Payload for TransmissionType {
         })?;
 
         match first {
-            "Inc" => Ok(TransmissionType::Incoming(second)),
-            "Out" => Ok(TransmissionType::Outgoing(second)),
+            "inc" => Ok(TransmissionType::Incoming(second)),
+            "out" => Ok(TransmissionType::Outgoing(second)),
             _ => Err(PayloadError::new(
                 first.to_owned(),
                 "Invalid type for 'TransmissionType' enum".to_owned(),
@@ -48,8 +48,8 @@ impl Payload for TransmissionType {
 
     fn to_string(&self) -> String {
         match *self {
-            TransmissionType::Incoming(pid) => format!("Inc#{}", pid),
-            TransmissionType::Outgoing(pid) => format!("Out#{}", pid),
+            TransmissionType::Incoming(pid) => format!("inc#{}", pid),
+            TransmissionType::Outgoing(pid) => format!("out#{}", pid),
             TransmissionType::Error => "Err".to_owned(),
         }
     }
@@ -92,6 +92,7 @@ impl Payload for Transmission {
     }
 }
 
+#[allow(unused)]
 pub struct PayloadError {
     pub data: String,
     pub error: String,

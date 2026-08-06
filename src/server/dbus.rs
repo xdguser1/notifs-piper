@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::Arc;
+use std::sync::{Arc, mpsc::Sender};
 use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
@@ -8,7 +8,7 @@ use zbus::{interface, object_server::SignalEmitter, zvariant::OwnedValue};
 
 use crate::utils::logger::Logger;
 
-use super::jobs::{Broadcast, Close, Desc, JobDesc, Pid, SyncList};
+use super::jobs::{Broadcast, Close, Desc, JobDesc, SyncList};
 
 const CAPABILITIES: [&'static str; 0] = [];
 
@@ -25,11 +25,12 @@ pub struct NotificationEvent {
     summary: String,
     body: String,
     actions: Vec<String>,
-    hints: Vec<HashMap<String, OwnedValue>>,
+    hints: HashMap<String, OwnedValue>,
+    timeout: i32,
 }
 
 impl NotificationEvent {
-    pub fn get_id(&self) -> Nid {
+    pub const fn get_id(&self) -> Nid {
         self.id
     }
 }
@@ -37,6 +38,7 @@ impl NotificationEvent {
 pub struct Notifications {
     counter: Nid,
     sync_list: SyncList,
+    sender: Sender<()>,
 }
 
 unsafe impl Send for Notifications {}
@@ -64,10 +66,11 @@ impl Notifications {
         }
     }
 
-    pub fn new(counter: Nid, sync_list: &SyncList) -> Notifications {
+    pub fn new(counter: Nid, sync_list: &SyncList, sender: Sender<()>) -> Notifications {
         Notifications {
             counter: counter,
             sync_list: Arc::clone(sync_list),
+            sender,
         }
     }
 
@@ -79,7 +82,8 @@ impl Notifications {
         summary: String,
         body: String,
         actions: Vec<String>,
-        hints: Vec<HashMap<String, OwnedValue>>,
+        hints: HashMap<String, OwnedValue>,
+        timeout: i32,
     ) -> Nid {
         let id = if replaces_id == 0 {
             self.counter += 1;
@@ -103,9 +107,12 @@ impl Notifications {
                 body,
                 actions,
                 hints,
+                timeout,
             })),
             Desc::new(0, 0),
         ));
+
+        self.sender.send(()).unwrap();
 
         id
     }
@@ -129,7 +136,8 @@ impl NotificationsWrapper {
         summary: String,
         body: String,
         actions: Vec<String>,
-        hints: Vec<HashMap<String, OwnedValue>>,
+        hints: HashMap<String, OwnedValue>,
+        timeout: i32,
     ) -> u32 {
         self.inner.notify(
             app_name,
@@ -139,6 +147,7 @@ impl NotificationsWrapper {
             body,
             actions,
             hints,
+            timeout,
         )
     }
 
