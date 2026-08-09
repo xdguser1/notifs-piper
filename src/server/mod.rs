@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::fs;
 use std::sync::{Arc, Mutex, mpsc::channel};
 use std::thread;
 
@@ -24,7 +25,9 @@ pub struct ServerConfig {
     pub logs_config: LogsConfig,
 }
 
-pub fn start_server(config: ServerConfig) -> ! {
+pub fn start_server(config: ServerConfig) -> Result<!, zbus::Error> {
+    let _ = fs::remove_file(&config.listener_path);
+
     let sync_list: SyncList = Arc::new(Mutex::new(VecDeque::new()));
     let (snd, recv) = channel::<()>();
 
@@ -45,12 +48,9 @@ pub fn start_server(config: ServerConfig) -> ! {
 
     let listener = Listener::new(config.listener_path.as_str(), &sync_list, snd);
 
-    let con = connection::Builder::session()
-        .expect("Cannot acquire dbus session.")
-        .name("org.freedesktop.Notifications")
-        .expect("Cannot acquire org.freedesktop.Notifications name. Probably in use elsewhere.")
-        .serve_at("/org/freedesktop/Notifications", notif)
-        .expect("Cannot serve at given interface.")
+    let con = connection::Builder::session()?
+        .name("org.freedesktop.Notifications")?
+        .serve_at("/org/freedesktop/Notifications", notif)?
         .build();
 
     thread::spawn(move || {

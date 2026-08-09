@@ -10,12 +10,13 @@ use tokio::task::JoinSet;
 
 use crate::utils::logger::Logger;
 
-use super::jobs::{JobDesc, SyncList};
+use super::dbus::NotificationEvent;
+use super::jobs::{Acknowledge, Desc, Flags, FlagsRepr, JobDesc, SyncList};
 use super::transmission::{Payload, Transmission, TransmissionType};
 
 pub struct Listener {
     active_processes: Arc<Mutex<HashMap<u32, UnixStream>>>,
-    listening_processes: Arc<tokio::sync::Mutex<HashMap<u32, UnixStream>>>,
+    listening_processes: Arc<tokio::sync::Mutex<HashMap<u32, (UnixStream, FlagsRepr)>>>,
     // `String` is not strictly required, since a lifetime could do the job, but better
     // for future features, if any require a owned path.
     listening_path: String,
@@ -158,16 +159,27 @@ impl Listener {
                     };
                 }
 
+                macro_rules! notify_manager {
+                    ($id:ident) => {
+                        if let Err(_) = $id.send(()) {
+                            pn.send(()).unwrap();
+                            return;
+                        }
+                    };
+                }
+
                 match trans.typ {
                     TT::Error => {
                         Listener::send_error(&us, "Current architecture wants the client to manage errors.".to_owned()).await;
                     },
-                    TT::Incoming(pid) if trans.data.as_str() == "watch" => {
-                        lp.lock().await.insert(pid, us);
-                    },
                     TT::Incoming(pid) => {
                         match JobDesc::from_str_static(trans.data.as_str()) {
                             Ok(jobd) => {
+                                if jobd.cmd.canonical_name() == "watch" {
+                                    lp.lock().await.insert(pid, (us, jobd.desc.flags));
+                                    return;
+                                }
+
                                 acquire_lock!(ap, "active_processes", lock, lock.insert(pid, us));
                                 acquire_lock!(sl, "sync_list", lock, lock.push_back(jobd));
                             },
@@ -177,26 +189,29 @@ impl Listener {
                             },
                         }
 
-                        // Returns Err if manager panics (deallocates recv).
-                        if let Err(_) = sn.send(()) {
-                            pn.send(()).unwrap();
-                            return;
-                        }
+                        notify_manager!(sn);
                     },
                     TT::Outgoing(pid) => {
                         if pid == 0 {
-                            // TODO: Add `read <- true` when processes are  listening.
                             let mut lock = lp.lock().await;
                             let mut old = Vec::with_capacity(lock.len());
-                            for value in lock.values() {
+                            let mut read = false;
+                            for (unx, flags) in lock.values() {
                                 if let Err(_) = Listener::write(
-                                    value,
+                                    unx,
                                     &Transmission::new(TransmissionType::Outgoing(pid), trans.data.clone())
                                 ).await {
+                                    read |= Flags::SILENT.is(*flags);
                                     old.push(pid);
                                 }
                             }
                             old.iter().for_each(|val| { lock.remove(val); });
+
+                            if read && let Ok(nev) = serde_json::from_str(&trans.data).and_then(|val| serde_json::from_value::<NotificationEvent>(val)) {
+                                acquire_lock!(sl, "sync_list", lock, lock.push_back(JobDesc::new(Box::new(Acknowledge(nev.get_id())), Desc::new(0, 0))));
+
+                                notify_manager!(sn);
+                            }
                            return;
                         }
 

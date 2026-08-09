@@ -15,16 +15,13 @@ fn main() {
         .unwrap()
         + "/npiper";
 
-    let listener_path = path.clone() + "/pipe";
-
     fs::create_dir_all(&path).expect("Could not create data directory.");
 
-    let _ = fs::remove_file(&listener_path);
-
     let config = ServerConfig {
-        listener_path,
+        listener_path: path.clone() + "/pipe",
         logs_path: path.clone() + "/logs.json",
         logs_config: LogsConfig { max_logs: 1000 },
     };
+
     server::start_server(config);
 }

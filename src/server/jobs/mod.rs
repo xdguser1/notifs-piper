@@ -4,13 +4,17 @@ use std::sync::{Arc, Mutex};
 use super::manager::LogsManager;
 use super::transmission::{Payload, PayloadError};
 
+pub(super) use self::acknowledge::Acknowledge;
 pub use self::broadcast::Broadcast;
 pub use self::close::Close;
 pub use self::read::Read;
+pub use self::watch::Watch;
 
+mod acknowledge;
 mod broadcast;
 mod close;
 mod read;
+mod watch;
 
 pub type FlagsRepr = u8;
 pub type Pid = u32;
@@ -40,6 +44,7 @@ fn from_str_static_dyn_payload(data: &str) -> Result<Box<dyn Job>, PayloadError>
     Ok(match typ {
         "broadcast" => branch!(Broadcast),
         "read" => branch!(Read),
+        "watch" => branch!(Watch),
         _ => unreachable!("Someone forgot to put their canonical name here."),
     })
 }

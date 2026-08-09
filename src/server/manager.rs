@@ -7,7 +7,7 @@ use tokio::net::UnixStream;
 
 use crate::utils::logger::Logger;
 
-use super::dbus::NotificationEvent;
+use super::dbus::{Nid, NotificationEvent};
 use super::jobs::{FulfilledJob, Pid, SyncList};
 use super::transmission::{Payload, Transmission};
 
@@ -178,9 +178,6 @@ impl LogsManager {
         self.logs_buffer.iter()
     }
 
-    // Warning: we have methods that update the logs buffer, but where this is not called
-    // automatically. This is for performance reasons. Someone who uses this function should
-    // probably call `write_logs` afterwards.
     pub(super) fn append_notification(&mut self, notif: NotificationEvent) {
         if self.logs_buffer.len() == self.logs_config.max_logs as usize {
             self.logs_buffer.pop_back();
@@ -196,9 +193,10 @@ impl LogsManager {
         )
     }
 
-    // Warning: we have methods that update the logs buffer, but where this is not called
-    // automatically. This is for performance reasons. Someone who uses this function should
-    // probably call `write_logs` afterwards.
+    pub(super) fn read_notification(&mut self, not: Nid) {
+        self.logs_buffer[not as usize].read = true;
+    }
+
     pub(super) fn read_logs(
         &mut self,
         start: LogCountType,
