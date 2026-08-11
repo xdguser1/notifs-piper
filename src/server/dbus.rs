@@ -10,6 +10,8 @@ use crate::utils::logger::Logger;
 
 use super::jobs::{Broadcast, Close, Desc, JobDesc, SyncList};
 
+// TODO: Update capabilities
+// TODO: Add signal management
 const CAPABILITIES: [&'static str; 0] = [];
 
 pub type Nid = u32;
@@ -61,6 +63,7 @@ impl Notifications {
                 panic!();
             }
             Ok(mut sync_list) => {
+                Logger::cdebug("Job scheduled for execution.", None);
                 sync_list.push_back(desc);
             }
         }
@@ -85,6 +88,8 @@ impl Notifications {
         hints: HashMap<String, OwnedValue>,
         timeout: i32,
     ) -> Nid {
+        Logger::cdebug("Received new notification. Creating job.", None);
+
         let id = if replaces_id == 0 {
             self.counter += 1;
             self.counter
@@ -118,6 +123,7 @@ impl Notifications {
     }
 
     pub fn close_notification(&self, nid: Nid) {
+        Logger::cdebug("Received closed command. Creating job.", None);
         self.push_job(JobDesc::new(Box::new(Close(nid)), Desc::new(0, 0)));
     }
 }

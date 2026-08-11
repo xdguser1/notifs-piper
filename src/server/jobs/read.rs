@@ -20,7 +20,7 @@ impl Job for Read {
                 serde_json::to_string(manager.read_logs(
                     self.start,
                     self.end,
-                    Flags::SILENT.is(desc.flags),
+                    !Flags::SILENT.is(desc.flags),
                 ))
                 .unwrap(),
             )),
@@ -29,7 +29,7 @@ impl Job for Read {
     }
 
     fn canonical_name(&self) -> &'static str {
-        "job"
+        "read"
     }
 }
 

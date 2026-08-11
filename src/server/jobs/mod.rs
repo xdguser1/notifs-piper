@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
+use super::dbus::Nid;
 use super::manager::LogsManager;
 use super::transmission::{Payload, PayloadError};
 
@@ -45,12 +46,14 @@ fn from_str_static_dyn_payload(data: &str) -> Result<Box<dyn Job>, PayloadError>
         "broadcast" => branch!(Broadcast),
         "read" => branch!(Read),
         "watch" => branch!(Watch),
-        _ => unreachable!("Someone forgot to put their canonical name here."),
+        _ => {
+            unreachable!("Someone forgot to put their canonical name here.");
+        }
     })
 }
 
 pub enum EventType {
-    Close(Pid),
+    Close(Nid),
 }
 
 impl Payload for EventType {
@@ -62,7 +65,7 @@ impl Payload for EventType {
         ))?;
 
         match typ {
-            "cls" => Ok(EventType::Close(rest.parse::<Pid>().map_err(|err| {
+            "cls" => Ok(EventType::Close(rest.parse::<Nid>().map_err(|err| {
                 PayloadError::new(
                     typ.to_owned(),
                     "Could not parse 'nid' for 'EventType' type 'Close'".to_owned(),
@@ -156,12 +159,17 @@ impl Payload for FulfilledJob {
 #[repr(u8)]
 #[derive(Copy, Clone)]
 pub enum Flags {
+    NONE = 0,
     SILENT = 1,
 }
 
 impl Flags {
     pub const fn is(&self, int: FlagsRepr) -> bool {
         (*self as FlagsRepr) & int != 0
+    }
+
+    pub const fn join(int: FlagsRepr, other: Flags) -> FlagsRepr {
+        int | (other as FlagsRepr)
     }
 }
 

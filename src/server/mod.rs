@@ -26,8 +26,6 @@ pub struct ServerConfig {
 }
 
 pub fn start_server(config: ServerConfig) -> Result<!, zbus::Error> {
-    let _ = fs::remove_file(&config.listener_path);
-
     let sync_list: SyncList = Arc::new(Mutex::new(VecDeque::new()));
     let (snd, recv) = channel::<()>();
 
@@ -49,16 +47,24 @@ pub fn start_server(config: ServerConfig) -> Result<!, zbus::Error> {
     let listener = Listener::new(config.listener_path.as_str(), &sync_list, snd);
 
     let con = connection::Builder::session()?
+        .replace_existing_names(false)
         .name("org.freedesktop.Notifications")?
         .serve_at("/org/freedesktop/Notifications", notif)?
         .build();
 
+    Logger::cdebug("Removing previous pipe.", None);
+
+    Logger::cdebug("Creating manager thread.", None);
     thread::spawn(move || {
+        Logger::cdebug("Manager thread created.", None);
         for _ in recv.iter() {
+            Logger::cdebug("(MANAGER THREAD): Received signal to execute job.", None);
             match manager.exec() {
                 Ok(ex) => {
                     match ex {
-                        ExecState::Executed => {}
+                        ExecState::Executed => {
+                            Logger::cdebug("(MANAGER THREAD): Job executed successfully.", None);
+                        }
                         ExecState::Error => {
                             // The error was sent back in exec. No need to print to stderr
                             Logger::info("An error occurred while processing a request.");
@@ -93,17 +99,15 @@ pub fn start_server(config: ServerConfig) -> Result<!, zbus::Error> {
         .build()
         .expect("Cannot build listener threads.");
 
-    let job = handle.spawn(async move { listener.listen().await.unwrap() });
-
     if let Ok(runtime) = Builder::new_current_thread().enable_io().build() {
+        let _con = runtime.block_on(con)?;
+        let _ = fs::remove_file(&config.listener_path);
+        let job = handle.spawn(async move { listener.listen().await.unwrap() });
+
         // Should never finish if everything went correctly
         #[allow(unused)]
-        runtime.block_on(async move {
-            if let Ok(_con) = con.await {
-                print!("{:?}", job.await);
-            }
-        });
+        runtime.block_on(job);
     }
 
-    panic!();
+    unreachable!("Either infinite loop or `return Err` comes before this.");
 }

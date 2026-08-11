@@ -8,11 +8,7 @@ pub struct Acknowledge(pub Nid);
 impl Job for Acknowledge {
     fn execute(self: Box<Self>, _: &Desc, manager: &mut LogsManager) -> FulfilledJob {
         manager.read_notification(self.0);
-        if let Err(err) = manager.write_logs() {
-            FulfilledJob::new(Err(err.to_string()), FulfilledJobResultType::Other)
-        } else {
-            FulfilledJob::new(Ok(None), FulfilledJobResultType::Other)
-        }
+        FulfilledJob::new(Ok(None), FulfilledJobResultType::Other)
     }
 
     fn canonical_name(&self) -> &'static str {

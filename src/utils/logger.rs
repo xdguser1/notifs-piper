@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 #[derive(Copy, Clone)]
 pub struct LogSettings {
     bold: bool,
@@ -168,5 +170,17 @@ impl Logger {
 
     pub fn debug(text: &str) {
         Logger::DEBUG_LOGGER.println(format!("[DEBUG]: {}", text).as_str());
+    }
+
+    pub fn cdebug(text: &str, set: Option<bool>) {
+        static SET: AtomicBool = AtomicBool::new(false);
+
+        if set.is_some() {
+            SET.store(set.unwrap(), Ordering::Release);
+        }
+
+        if SET.load(Ordering::Acquire) {
+            Logger::debug(text);
+        }
     }
 }

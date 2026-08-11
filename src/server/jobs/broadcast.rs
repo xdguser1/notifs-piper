@@ -17,14 +17,7 @@ impl Job for Broadcast {
     fn execute(self: Box<Self>, _: &Desc, manager: &mut LogsManager) -> FulfilledJob {
         let broadcast = self.to_string();
         manager.append_notification(self.event);
-        if let Err(x) = manager
-            .write_logs()
-            .map_err(|err| FulfilledJob::new(Err(err.to_string()), FulfilledJobResultType::Other))
-        {
-            FulfilledJob::new(Err(x.to_string()), FulfilledJobResultType::Other)
-        } else {
-            FulfilledJob::new(Ok(Some(broadcast)), FulfilledJobResultType::Notifications)
-        }
+        FulfilledJob::new(Ok(Some(broadcast)), FulfilledJobResultType::Notifications)
     }
 
     fn canonical_name(&self) -> &'static str {

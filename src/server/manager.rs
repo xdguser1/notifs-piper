@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::collections::VecDeque;
 use std::fs;
 use std::io::{self, ErrorKind};
@@ -11,7 +12,7 @@ use super::dbus::{Nid, NotificationEvent};
 use super::jobs::{FulfilledJob, Pid, SyncList};
 use super::transmission::{Payload, Transmission};
 
-pub type LogCountType = u32;
+pub type LogCountType = u16;
 
 pub enum ExecState {
     Executed,
@@ -36,6 +37,7 @@ pub struct LogsManager {
     logs_path: String,
     logs_buffer: VecDeque<NotificationEvent>,
     logs_config: LogsConfig,
+    dirty: bool,
 }
 
 impl LogsManager {
@@ -171,6 +173,7 @@ impl LogsManager {
             logs_path: logs_path.to_owned(),
             logs_buffer: buffer,
             logs_config,
+            dirty: false,
         }
     }
 
@@ -184,17 +187,16 @@ impl LogsManager {
         }
 
         self.logs_buffer.push_front(notif);
-    }
-
-    pub(super) fn write_logs(&mut self) -> io::Result<()> {
-        fs::write(
-            &self.logs_path,
-            serde_json::to_string(&self.logs_buffer).unwrap().as_bytes(),
-        )
+        self.dirty = true;
     }
 
     pub(super) fn read_notification(&mut self, not: Nid) {
-        self.logs_buffer[not as usize].read = true;
+        // PERF: Since the notifications are appended in the front and most notifications are
+        // marked as "read" the moment they are sent, this will usually run with only 1 iteration.
+        // Note though, that logs_buffer has no guarantee to be ordered, so the worst case scenario
+        // is still O(n).
+        self.logs_buffer.iter_mut().find(|val| val.get_id() == not).map(|not| { not.read = true; });
+        self.dirty = true;
     }
 
     pub(super) fn read_logs(
@@ -203,13 +205,19 @@ impl LogsManager {
         end: LogCountType,
         update_read: bool,
     ) -> &[NotificationEvent] {
-        // Should panic if called with start > end. The panicking is left to the compiler
-        let slice = &mut self.logs_buffer.make_contiguous()[(start as usize)..(end as usize)];
+        let len = self.logs_buffer.len();
 
-        if update_read {
+        let slice = &mut self.logs_buffer.make_contiguous()[
+            (min(len, start as usize))..(min(len, end as usize))
+        ];
+
+        let len = slice.len();
+        if update_read && len != 0 {
+            self.dirty = true;
             slice.iter_mut().for_each(|el| {
                 el.read = true;
             });
+            Logger::cdebug(format!("(MANAGER THREAD): Marking {} notifications read.", len).as_str(), None);
         }
 
         slice
@@ -232,23 +240,40 @@ impl LogsManager {
         };
 
         let Some(jd) = vd.pop_front() else {
+            Logger::cdebug("(MANAGER THREAD): No job executed.", None);
             return Ok(ExecState::Noop);
         };
+
+        let empty = vd.is_empty();
 
         drop(vd);
 
         let fj = jd.cmd.execute(&jd.desc, self);
+        Logger::cdebug("(MANAGER THREAD): Job executed.", None);
+
+        if empty && self.dirty {
+            Logger::cdebug("(MANAGER THREAD): Writing results in logs.", None);
+            self.dirty = false;
+            fs::write(
+                &self.logs_path,
+                serde_json::to_string(&self.logs_buffer).unwrap().as_bytes(),
+            )?;
+            Logger::cdebug("(MANAGER THREAD): Logs written.", None);
+        }
 
         if fj.result.as_ref().is_ok_and(|v| v.is_none()) {
+            Logger::cdebug("(MANAGER THREAD): Nothing to send back.", None);
             return Ok(ExecState::Executed);
         }
 
+        Logger::cdebug("(MANAGER THREAD): Sending back results.", None);
         tokio::runtime::Builder::new_current_thread()
             .enable_io()
             .build()?
             .block_on(self.send(&fj, jd.desc.pid))?;
 
         Ok(if fj.result.is_err() {
+            Logger::cdebug("(MANAGER THREAD): Error in last job execution.", None);
             ExecState::Error
         } else {
             ExecState::Executed
