@@ -6,9 +6,10 @@ use std::fs;
 use clap::Parser;
 use tokio::{net::UnixStream, runtime::Builder};
 
-use cli::{Cli, Sub};
+use cli::{CAPABILITIES_ENUMERATED, Cli, Sub};
 use server::{
     ServerConfig,
+    dbus::CAPABILITIES,
     jobs::{Desc, Flags, FlagsRepr, JobDesc, Read, Watch},
     listener::Listener,
     manager::LogsConfig,
@@ -82,7 +83,12 @@ fn main() {
     Logger::cdebug("~~ Debugging session ~~", Some(parsed.debug));
 
     match parsed.subcommand {
-        Sub::Daemon { logs_file, max } => {
+        Sub::Daemon {
+            logs_file,
+            max,
+            options,
+            all,
+        } => {
             Logger::cdebug(format!("Running daemon in '{}'.", path).as_str(), None);
 
             fs::create_dir_all(&path)
@@ -100,6 +106,19 @@ fn main() {
                 logs_path = pb.to_str().unwrap().to_owned();
             } else {
                 logs_path = path.clone() + "/logs.json";
+            }
+
+            if all {
+                CAPABILITIES.set(CAPABILITIES_ENUMERATED.to_vec()).unwrap();
+            } else {
+                CAPABILITIES
+                    .set(
+                        options
+                            .into_iter()
+                            .map(|val| val.leak::<'static>() as &'static str)
+                            .collect(),
+                    )
+                    .unwrap();
             }
 
             let Err(err) = server::start_server(ServerConfig {
@@ -127,8 +146,8 @@ fn main() {
             send_job!(
                 us,
                 Read::new(skip, skip + count),
-                if silent { Flags::SILENT } else { Flags::NONE }
-                ;
+                if silent { Flags::SILENT } else { Flags::NONE };
+                /*---------------------------------------------*/
                 match Listener::read(&us).await {
                     Ok(tr) => {
                         println!("{}", tr.data);
@@ -143,8 +162,8 @@ fn main() {
             send_job!(
                 us,
                 Watch,
-                if silent { Flags::SILENT } else { Flags::NONE }
-                ;
+                if silent { Flags::SILENT } else { Flags::NONE };
+                /*---------------------------------------------*/
                 while let Ok(tr) = Listener::read(&us).await {
                     println!("{}", tr.data);
                 }

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::{Arc, mpsc::Sender};
+use std::sync::{Arc, OnceLock, mpsc::Sender};
 use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
@@ -13,8 +13,7 @@ use super::jobs::{
     Broadcast, Close, Desc, JobDesc, NotificationClosed, NotificationClosedRepr, SyncList,
 };
 
-// TODO: Update capabilities
-const CAPABILITIES: [&'static str; 0] = [];
+pub static CAPABILITIES: OnceLock<Vec<&'static str>> = OnceLock::new();
 
 pub type Nid = u32;
 
@@ -171,7 +170,7 @@ impl NotificationsWrapper {
     }
 
     pub async fn get_capabilities(&self) -> Vec<&'static str> {
-        CAPABILITIES.to_vec()
+        CAPABILITIES.get().unwrap().clone()
     }
 
     #[zbus(out_args("name", "vendor", "version", "spec_version"))]
