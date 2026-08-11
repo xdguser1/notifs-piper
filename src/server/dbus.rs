@@ -35,6 +35,10 @@ impl NotificationEvent {
     pub const fn get_id(&self) -> Nid {
         self.id
     }
+
+    pub const fn get_replacement(&self) -> Nid {
+        self.replaces_id
+    }
 }
 
 pub struct Notifications {

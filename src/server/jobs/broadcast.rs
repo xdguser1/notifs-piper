@@ -16,6 +16,10 @@ impl Broadcast {
 impl Job for Broadcast {
     fn execute(self: Box<Self>, _: &Desc, manager: &mut LogsManager) -> FulfilledJob {
         let broadcast = self.to_string();
+        let replacement = self.event.get_replacement();
+        if replacement != 0 {
+            manager.remove_notification(replacement);
+        }
         manager.append_notification(self.event);
         FulfilledJob::new(Ok(Some(broadcast)), FulfilledJobResultType::Notifications)
     }

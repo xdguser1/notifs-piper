@@ -181,6 +181,15 @@ impl LogsManager {
         self.logs_buffer.iter()
     }
 
+    pub(super) fn remove_notification(&mut self, nid: Nid) -> Option<NotificationEvent> {
+        let pos = self.logs_buffer.iter().position(|val| val.get_id() == nid);
+        if pos.is_none() {
+            return None;
+        }
+        self.dirty = true;
+        self.logs_buffer.swap_remove_back(pos.unwrap())
+    }
+
     pub(super) fn append_notification(&mut self, notif: NotificationEvent) {
         if self.logs_buffer.len() == self.logs_config.max_logs as usize {
             self.logs_buffer.pop_back();
