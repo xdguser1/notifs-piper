@@ -6,12 +6,14 @@ use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
 use zbus::{interface, object_server::SignalEmitter, zvariant::OwnedValue};
 
+use crate::consts::{NAME, NOTIFICATIONS_PROT_VER, VERSION};
 use crate::utils::logger::Logger;
 
-use super::jobs::{Broadcast, Close, Desc, JobDesc, SyncList};
+use super::jobs::{
+    Broadcast, Close, Desc, JobDesc, NotificationClosed, NotificationClosedRepr, SyncList,
+};
 
 // TODO: Update capabilities
-// TODO: Add signal management
 const CAPABILITIES: [&'static str; 0] = [];
 
 pub type Nid = u32;
@@ -75,7 +77,7 @@ impl Notifications {
 
     pub fn new(counter: Nid, sync_list: &SyncList, sender: Sender<()>) -> Notifications {
         Notifications {
-            counter: counter,
+            counter,
             sync_list: Arc::clone(sync_list),
             sender,
         }
@@ -128,7 +130,10 @@ impl Notifications {
 
     pub fn close_notification(&self, nid: Nid) {
         Logger::cdebug("Received closed command. Creating job.", None);
-        self.push_job(JobDesc::new(Box::new(Close(nid)), Desc::new(0, 0)));
+        self.push_job(JobDesc::new(
+            Box::new(Close::new(nid, NotificationClosed::CallCloseNotification)),
+            Desc::new(0, 0),
+        ));
     }
 }
 
@@ -136,7 +141,7 @@ pub struct NotificationsWrapper {
     pub inner: Notifications,
 }
 
-#[interface(name = "org.freedesktop.Notifications")]
+#[interface(name = "org.freedesktop.Notifications", introspection_docs = false)]
 impl NotificationsWrapper {
     pub async fn notify(
         &mut self,
@@ -173,15 +178,27 @@ impl NotificationsWrapper {
     pub async fn get_server_information(
         &self,
     ) -> zbus::fdo::Result<(&'static str, &'static str, &'static str, &'static str)> {
-        Ok(("notifs-piper", "notifs-piper", "0.1.0", "1.3"))
+        Ok((NAME, NAME, VERSION, NOTIFICATIONS_PROT_VER))
     }
 
     #[zbus(signal)]
-    pub async fn notification_closed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+    pub async fn notification_closed(
+        emitter: &SignalEmitter<'_>,
+        id: Nid,
+        reason: NotificationClosedRepr,
+    ) -> zbus::Result<()>;
 
     #[zbus(signal)]
-    pub async fn action_invoked(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+    pub async fn action_invoked(
+        emitter: &SignalEmitter<'_>,
+        id: Nid,
+        action_key: String,
+    ) -> zbus::Result<()>;
 
     #[zbus(signal)]
-    pub async fn activation_token(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+    pub async fn activation_token(
+        emitter: &SignalEmitter<'_>,
+        id: Nid,
+        activation_token: String,
+    ) -> zbus::Result<()>;
 }

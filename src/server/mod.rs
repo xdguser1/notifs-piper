@@ -29,6 +29,19 @@ pub fn start_server(config: ServerConfig) -> Result<!, zbus::Error> {
     let sync_list: SyncList = Arc::new(Mutex::new(VecDeque::new()));
     let (snd, recv) = channel::<()>();
 
+    let listener_rt = Builder::new_multi_thread()
+        .worker_threads(3)
+        .enable_io()
+        .build()
+        .expect("Cannot build listener threads.");
+
+    let dbus_rt = Builder::new_current_thread()
+        .enable_io()
+        .build()
+        .expect("Error in building main runtime");
+
+    let listener = Listener::new(config.listener_path.as_str(), &sync_list, snd.clone());
+
     let mut manager = LogsManager::new(
         &sync_list,
         config.listener_path.as_str(),
@@ -38,21 +51,31 @@ pub fn start_server(config: ServerConfig) -> Result<!, zbus::Error> {
 
     let notif = NotificationsWrapper {
         inner: Notifications::new(
-            manager.iter().map(|not| not.get_id()).max().unwrap_or(0),
+            manager.iter().map(|val| val.get_id()).max().unwrap_or(0),
             &sync_list,
-            snd.clone(),
+            snd,
         ),
     };
 
-    let listener = Listener::new(config.listener_path.as_str(), &sync_list, snd);
-
-    let con = connection::Builder::session()?
-        .replace_existing_names(false)
-        .name("org.freedesktop.Notifications")?
-        .serve_at("/org/freedesktop/Notifications", notif)?
-        .build();
+    Logger::cdebug(
+        "Setting dbus server on org.freedesktop.Notifications.",
+        None,
+    );
+    manager.interface = Some(
+        dbus_rt.block_on(
+            connection::Builder::session()?
+                .replace_existing_names(false)
+                .name("org.freedesktop.Notifications")?
+                .serve_at("/org/freedesktop/Notifications", notif)?
+                .build(),
+        )?,
+    );
 
     Logger::cdebug("Removing previous pipe.", None);
+    let _ = fs::remove_file(&config.listener_path);
+
+    Logger::cdebug("Starting listener.", None);
+    let job = listener_rt.spawn(async move { listener.listen().await.unwrap() });
 
     Logger::cdebug("Creating manager thread.", None);
     thread::spawn(move || {
@@ -93,21 +116,9 @@ pub fn start_server(config: ServerConfig) -> Result<!, zbus::Error> {
         }
     });
 
-    let handle = Builder::new_multi_thread()
-        .worker_threads(3)
-        .enable_io()
-        .build()
-        .expect("Cannot build listener threads.");
-
-    if let Ok(runtime) = Builder::new_current_thread().enable_io().build() {
-        let _con = runtime.block_on(con)?;
-        let _ = fs::remove_file(&config.listener_path);
-        let job = handle.spawn(async move { listener.listen().await.unwrap() });
-
-        // Should never finish if everything went correctly
-        #[allow(unused)]
-        runtime.block_on(job);
-    }
+    // Should never finish if everything went correctly
+    #[allow(unused)]
+    dbus_rt.block_on(job);
 
     unreachable!("Either infinite loop or `return Err` comes before this.");
 }

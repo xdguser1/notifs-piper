@@ -5,11 +5,11 @@ use super::dbus::Nid;
 use super::manager::LogsManager;
 use super::transmission::{Payload, PayloadError};
 
-pub(super) use self::acknowledge::Acknowledge;
-pub use self::broadcast::Broadcast;
-pub use self::close::Close;
-pub use self::read::Read;
-pub use self::watch::Watch;
+pub(super) use self::acknowledge::*;
+pub use self::broadcast::*;
+pub use self::close::*;
+pub use self::read::*;
+pub use self::watch::*;
 
 mod acknowledge;
 mod broadcast;

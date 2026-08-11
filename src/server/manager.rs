@@ -5,6 +5,7 @@ use std::io::{self, ErrorKind};
 use std::sync::Arc;
 
 use tokio::net::UnixStream;
+use zbus::Connection;
 
 use crate::utils::logger::Logger;
 
@@ -38,6 +39,7 @@ pub struct LogsManager {
     logs_buffer: VecDeque<NotificationEvent>,
     logs_config: LogsConfig,
     dirty: bool,
+    pub(super) interface: Option<Connection>,
 }
 
 impl LogsManager {
@@ -174,6 +176,7 @@ impl LogsManager {
             logs_buffer: buffer,
             logs_config,
             dirty: false,
+            interface: None,
         }
     }
 
@@ -204,7 +207,12 @@ impl LogsManager {
         // marked as "read" the moment they are sent, this will usually run with only 1 iteration.
         // Note though, that logs_buffer has no guarantee to be ordered, so the worst case scenario
         // is still O(n).
-        self.logs_buffer.iter_mut().find(|val| val.get_id() == not).map(|not| { not.read = true; });
+        self.logs_buffer
+            .iter_mut()
+            .find(|val| val.get_id() == not)
+            .map(|not| {
+                not.read = true;
+            });
         self.dirty = true;
     }
 
@@ -216,9 +224,8 @@ impl LogsManager {
     ) -> &[NotificationEvent] {
         let len = self.logs_buffer.len();
 
-        let slice = &mut self.logs_buffer.make_contiguous()[
-            (min(len, start as usize))..(min(len, end as usize))
-        ];
+        let slice = &mut self.logs_buffer.make_contiguous()
+            [(min(len, start as usize))..(min(len, end as usize))];
 
         let len = slice.len();
         if update_read && len != 0 {
@@ -226,7 +233,10 @@ impl LogsManager {
             slice.iter_mut().for_each(|el| {
                 el.read = true;
             });
-            Logger::cdebug(format!("(MANAGER THREAD): Marking {} notifications read.", len).as_str(), None);
+            Logger::cdebug(
+                format!("(MANAGER THREAD): Marking {} notifications read.", len).as_str(),
+                None,
+            );
         }
 
         slice

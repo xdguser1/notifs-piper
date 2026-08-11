@@ -17,6 +17,7 @@ use server::{
 use utils::logger::Logger;
 
 mod cli;
+mod consts;
 mod server;
 mod utils;
 
