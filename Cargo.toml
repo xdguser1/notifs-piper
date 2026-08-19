@@ -2,6 +2,10 @@
 name = "notifs-piper"
 version = "0.1.0"
 edition = "2024"
+description = "A small notification daemon for piping to multiple processes"
+readme = "README.md"
+repository = "https://github.com/xdguser1/notifs-piper"
+license = "GPL 3"
 
 [dependencies]
 clap = { version = "4.6", features = ["derive"] }
@@ -10,3 +14,18 @@ serde = { version = "1.0", features = ["derive"] }
 syn = "3.0.3"
 tokio = { version = "1.53", features = ["net", "rt", "rt-multi-thread"] }
 zbus = { version = "5.18", features = ["tokio"] }
+
+[build]
+jobs = 2
+warnings = "deny"
+
+[profile.dev]
+opt-level = 0
+overflow-checks = true
+debug = 2
+
+[profile.release]
+opt-level = 3
+overflow-checks = false
+debug = 1
+lto = true
