@@ -49,9 +49,13 @@ pub fn start_server(config: ServerConfig) -> Result<!, zbus::Error> {
         config.logs_config,
     );
 
+    manager.notifyer = Some(snd.clone());
+
     let notif = NotificationsWrapper {
         inner: Notifications::new(
-            manager.iter().map(|val| val.get_id()).max().unwrap_or(0),
+            // Note to self: the counter is incremented before returning the result. So
+            // 'unwrap_or(0)' does not return Nid 0, since that would be illegal.
+            manager.iter().map(|val| val.id()).max().unwrap_or(0),
             &sync_list,
             snd,
         ),

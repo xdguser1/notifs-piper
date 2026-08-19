@@ -1,7 +1,10 @@
+use std::thread;
+use std::time::{Duration, Instant};
+
 use super::super::dbus::NotificationEvent;
 use super::super::manager::LogsManager;
 use super::super::transmission::{Payload, PayloadError};
-use super::{Desc, FulfilledJob, FulfilledJobResultType, Job};
+use super::{Close, Desc, FulfilledJob, FulfilledJobResultType, Job, JobDesc, NotificationClosed};
 
 pub struct Broadcast {
     event: NotificationEvent,
@@ -14,14 +17,55 @@ impl Broadcast {
 }
 
 impl Job for Broadcast {
-    fn execute(self: Box<Self>, _: &Desc, manager: &mut LogsManager) -> FulfilledJob {
+    fn execute(self: Box<Self>, _: &Desc, man: &mut LogsManager) -> FulfilledJob {
         let broadcast = self.to_string();
-        let replacement = self.event.get_replacement();
+        let replacement = self.event.replacement();
+
         if replacement != 0 {
-            manager.remove_notification(replacement);
+            man.remove_notification(replacement);
         }
-        manager.append_notification(self.event);
-        FulfilledJob::new(Ok(Some(broadcast)), FulfilledJobResultType::Notifications)
+
+        let config = man.logs_config();
+        let timeout = self.event.timeout();
+        // Silently fails if there is an invalid timeout.
+        // So if x in i32::MIN..=-2 then x ~ 0 as far as timeout is concerned.
+        if config.auto_close && timeout != 0 && timeout >= -1 {
+            let wakeup = Instant::now()
+                + Duration::from_millis(
+                    man.map_timeout(timeout)
+                    .unwrap() // timeout != 0 && timeout >= -1 => Ok
+                    .unwrap() // timeout != 0 => Some
+                    as u64,
+                );
+
+            let copy = man.copy_sync_list();
+
+            let id = self.event.id();
+
+            let snd = man.notifyer.clone();
+
+            // WARNING: This may be out of date when it actually creates a new NotificationClosed
+            // event (i.e. there was a replacement notification with a different timeout).
+            // The easiest way to manage this is to double check in *Close* whether the
+            // notification is actually expired.
+            thread::spawn(move || {
+                thread::sleep(wakeup - Instant::now());
+                // Unwraps since, if the lock is poisoned, we have bigger problems than this
+                // which are assumed to be managed elsewhere.
+                copy.lock().unwrap().push_back(JobDesc::new(
+                    Box::new(Close::new(id, NotificationClosed::Expired)),
+                    Desc::new(0, 0),
+                ));
+
+                snd.iter().for_each(|val| {
+                    let _ = val.send(());
+                });
+            });
+        }
+
+        man.append_notification(self.event);
+
+        FulfilledJob::new(Ok(Some(broadcast)), FulfilledJobResultType::Results)
     }
 
     fn canonical_name(&self) -> &'static str {

@@ -2,7 +2,7 @@ use std::cmp::min;
 use std::collections::VecDeque;
 use std::fs;
 use std::io::{self, ErrorKind};
-use std::sync::Arc;
+use std::sync::{Arc, mpsc::Sender};
 
 use tokio::net::UnixStream;
 use zbus::Connection;
@@ -28,6 +28,10 @@ pub enum LogsDBErrorType {
 
 pub struct LogsConfig {
     pub max_logs: LogCountType,
+    pub auto_close: bool,
+    // The protocol specifies a timeout in i32. Since a negative timeout is impossible (except for
+    // the special case of -1), u16 is used instead.
+    pub default_timeout: u16,
 }
 
 // There is no guarantee that logs_buffer is synchronised with
@@ -40,6 +44,7 @@ pub struct LogsManager {
     logs_config: LogsConfig,
     dirty: bool,
     pub(super) interface: Option<Connection>,
+    pub(super) notifyer: Option<Sender<()>>,
 }
 
 impl LogsManager {
@@ -177,19 +182,51 @@ impl LogsManager {
             logs_config,
             dirty: false,
             interface: None,
+            notifyer: None,
         }
     }
 
+    #[inline(always)]
+    pub(super) fn copy_sync_list(&self) -> SyncList {
+        Arc::clone(&self.sync_list)
+    }
+
+    #[inline(always)]
     pub(super) fn iter<'a>(&'a self) -> impl Iterator<Item = &'a NotificationEvent> {
         self.logs_buffer.iter()
     }
 
+    // This does *NOT* set self as dirty as it is possible that nothing gets returned.
+    // If something gets changed, the implementor should call `self.set_dirty()`
+    #[inline(always)]
+    pub(super) fn iter_mut<'a>(&'a mut self) -> impl Iterator<Item = &'a mut NotificationEvent> {
+        self.logs_buffer.iter_mut()
+    }
+
+    #[inline]
+    pub(super) fn find<'a>(&'a self, nid: Nid) -> Option<&'a NotificationEvent> {
+        self.iter().find(|ne| ne.id() == nid)
+    }
+
+    // This does *NOT* set self as dirty as it is possible that nothing gets returned.
+    // If something gets changed, the implementor should call `self.set_dirty()`
+    #[inline]
+    #[allow(unused)]
+    pub(super) fn find_mut<'a>(&'a mut self, nid: Nid) -> Option<&'a mut NotificationEvent> {
+        self.iter_mut().find(|ne| ne.id() == nid)
+    }
+
+    #[inline(always)]
+    pub(super) fn set_dirty(&mut self) {
+        self.dirty = true;
+    }
+
     pub(super) fn remove_notification(&mut self, nid: Nid) -> Option<NotificationEvent> {
-        let pos = self.logs_buffer.iter().position(|val| val.get_id() == nid);
+        let pos = self.logs_buffer.iter().position(|val| val.id() == nid);
         if pos.is_none() {
             return None;
         }
-        self.dirty = true;
+        self.set_dirty();
         self.logs_buffer.swap_remove_back(pos.unwrap())
     }
 
@@ -199,7 +236,7 @@ impl LogsManager {
         }
 
         self.logs_buffer.push_front(notif);
-        self.dirty = true;
+        self.set_dirty();
     }
 
     pub(super) fn read_notification(&mut self, not: Nid) {
@@ -209,11 +246,11 @@ impl LogsManager {
         // is still O(n).
         self.logs_buffer
             .iter_mut()
-            .find(|val| val.get_id() == not)
+            .find(|val| val.id() == not)
             .map(|not| {
                 not.read = true;
             });
-        self.dirty = true;
+        self.set_dirty();
     }
 
     pub(super) fn read_logs(
@@ -240,6 +277,20 @@ impl LogsManager {
         }
 
         slice
+    }
+
+    #[inline(always)]
+    pub fn logs_config<'a>(&'a self) -> &'a LogsConfig {
+        &self.logs_config
+    }
+
+    pub fn map_timeout(&self, timeout: i32) -> Result<Option<u16>, &'static str> {
+        match timeout {
+            -1 => Ok(Some(self.logs_config.default_timeout)),
+            0 => Ok(None),
+            x @ 1..=i32::MAX => Ok(Some(x as u16)),
+            _ => Err("Cannot have a negative timeout"),
+        }
     }
 
     pub fn exec(&mut self) -> io::Result<ExecState> {

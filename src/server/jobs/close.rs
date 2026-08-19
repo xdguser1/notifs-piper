@@ -1,14 +1,17 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use tokio::runtime::{Builder, LocalOptions};
 
 use super::super::dbus::{Nid, NotificationsWrapperSignals};
 use super::super::manager::LogsManager;
 use super::super::transmission::{Payload, PayloadError};
-use super::{Desc, EventType, FulfilledJob, FulfilledJobResultType, Job};
+use super::{Desc, EventType, Flags, FulfilledJob, FulfilledJobResultType, Job};
+use crate::utils::logger::Logger;
 
 pub type NotificationClosedRepr = u32;
 
 #[repr(u8)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum NotificationClosed {
     Expired = 1,
     Dismissed = 2,
@@ -42,7 +45,49 @@ impl Close {
 }
 
 impl Job for Close {
-    fn execute(self: Box<Self>, _: &Desc, man: &mut LogsManager) -> FulfilledJob {
+    fn execute(self: Box<Self>, desc: &Desc, man: &mut LogsManager) -> FulfilledJob {
+        Logger::cdebug("(MANAGER THREAD): Received closure request.", None);
+
+        let pos = man.iter().position(|val| val.id() == self.id);
+        let ne = pos.clone().and_then(|val| man.iter().nth(val));
+
+        if ne.as_ref().is_none_or(|ne| ne.is_closed()) && !Flags::FORCE.is(desc.flags) {
+            return FulfilledJob::new(Ok(None), FulfilledJobResultType::Other);
+        }
+
+        let ne = ne.unwrap();
+
+        let timeout = ne.timeout();
+        let time = ne.time();
+        if self.reason == NotificationClosed::Expired
+            && man.logs_config().auto_close
+            && (timeout == 0
+                || man
+                    .map_timeout(timeout)
+                    .and_then(|val| {
+                        if SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis()
+                            < val.unwrap() as u128 + time
+                        {
+                            return Err("");
+                        }
+                        Ok(Option::<u16>::None)
+                    })
+                    .is_err())
+        {
+            // This job is silently dropped, since the notification is not yet timed out.
+            return FulfilledJob::new(Ok(None), FulfilledJobResultType::Other);
+        }
+
+        Logger::cdebug("(MANAGER THREAD): Closing notification.", None);
+
+        let ne = man.iter_mut().nth(pos.unwrap()).unwrap();
+
+        ne.set_closed();
+        man.set_dirty();
+
         let res = Builder::new_current_thread().build_local(LocalOptions::default());
         if res.is_err() {
             return FulfilledJob::new(
@@ -50,18 +95,21 @@ impl Job for Close {
                 FulfilledJobResultType::Other,
             );
         }
+
         let res = res.unwrap().block_on(async {
-            let Some(ref con) = man.interface else {
-                return Err("Interface unset in manager. Function 'start_server' has a problem.");
-            };
-            con.object_server()
-                .interface("/org/freedesktop/Notifications.")
-                .await
-                .map_err(|_| "Cannot connect to interface.")?
-                .notification_closed(self.id, self.reason as NotificationClosedRepr)
-                .await
-                .map_err(|_| "Cannot emit 'notification_closed' signal.")?;
-            Ok(None)
+            if let Some(ref con) = man.interface {
+                con.object_server()
+                    .interface("/org/freedesktop/Notifications")
+                    .await
+                    .map_err(|_| "Cannot connect to interface.")?
+                    .notification_closed(self.id, self.reason as NotificationClosedRepr)
+                    .await
+                    .map_err(|_| "Cannot emit 'notification_closed' signal.")?;
+
+                Ok(Some("".to_owned()))
+            } else {
+                Err("Interface unset in manager. Function 'start_server' has a problem.")
+            }
         });
 
         FulfilledJob::new(

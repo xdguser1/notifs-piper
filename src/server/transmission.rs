@@ -30,7 +30,7 @@ impl Payload for TransmissionType {
         let second = second.parse::<Pid>().map_err(|err| {
             PayloadError::new(
                 second.to_owned(),
-                "Error while parsing 'pid' for 'TransmissionType'".to_owned(),
+                "Error while parsing 'pid' for 'TransmissionType'.".to_owned(),
                 err.to_string(),
             )
         })?;
@@ -40,7 +40,7 @@ impl Payload for TransmissionType {
             "out" => Ok(TransmissionType::Outgoing(second)),
             _ => Err(PayloadError::new(
                 first.to_owned(),
-                "Invalid type for 'TransmissionType' enum".to_owned(),
+                "Invalid type for 'TransmissionType' enum.".to_owned(),
                 String::new(),
             )),
         }

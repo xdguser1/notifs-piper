@@ -3,6 +3,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use clap::{Parser, Subcommand};
 
+use crate::server::dbus::Nid;
+
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 pub struct Cli {
@@ -10,57 +12,99 @@ pub struct Cli {
     #[arg(short, long, default_value_t = false)]
     pub debug: bool,
 
+    /// The command to be run.
     #[command(subcommand)]
     pub subcommand: Sub,
 }
 
 #[derive(Subcommand)]
 pub enum Sub {
-    /// Starts the notification server. This will fail if there is another server already running
-    /// org.freedesktop.Notifications.
+    /// Starts the notification server. There can only be one.
     Daemon {
-        /// Which file should be read and written for logging notifications.
+        /// File to store and read notification logs.
         #[arg(short = 'f', long = "logs-file")]
         logs_file: Option<PathBuf>,
 
-        /// Maximum amount of notifications kept in logs. Defaults to 100.
+        /// Maximum amount of notifications kept in logs.
         #[arg(short, long, default_value_t = 100)]
         max: u16,
 
-        /// Adds the given <OPTION> capability to the daemon notification server. By default, no capability
-        /// is activated.
-        /// See https://specifications.freedesktop.org/notification/latest/protocol.html#id-1.10.3.2.5
-        /// for details on the possible capabilities of the server. Note that this binary supports
-        /// every capability, but it is up to the user to use them correctly (ref: README on github).
+        /// Automatically closes a notification after timeout.
+        #[arg(short = 'c', long, default_value_t = false)]
+        auto_close: bool,
+
+        /// Adds a capability to the server. By default, no capability is activated.
         #[arg(short = 'o', long = "option", value_parser = opts_checker)]
         options: Vec<String>,
 
-        /// Allows all the capabilities for the server. Is disabled by default.
+        /// Adds all capabilities for the server. See procotol for the list.
         #[arg(short, long, default_value_t = false)]
         all: bool,
+
+        /// Default timeout option for expire_timeout being -1.
+        #[arg(short, long, default_value_t = 5000)]
+        timeout: u16,
     },
-    /// Reads <COUNT> notifications from the logs and returns the result in a JSON format.
+    /// Reads a number of notifications from the logs.
     Read {
         /// The number of notifications to be read.
         count: u16,
 
-        /// Skips the first <SKIP> notifications in the logs.
+        /// Skips an amount of notifications in the logs before reading.
         #[arg(short, long, default_value_t = 0)]
         skip: u16,
 
-        /// A notification may be unread if no process listened to the server. This keeps it unread.
+        /// Notifications won't be marked as read from this.
         #[arg(short = 'q', long, default_value_t = false)]
         silent: bool,
     },
-    /// Watches for new notifications, events and signals emitted by either the dbus server or
-    /// other processes listening. In practice, this can be considered as a "tiny notification
-    /// server" without the graphical interface (ref: README on github).
+    /// Pipes notifications to the output. See README on github.
     Watch {
-        /// By default, if a process listens to the server, it will mark every notification as
-        /// read. This option is to keep the notifications unread.
-        #[arg(short, long, default_value_t = false)]
+        /// Notifications won't be marked as read from this.
+        #[arg(short = 'q', long, default_value_t = false)]
         silent: bool,
     },
+    /// Signals a signal to the notification server.
+    Signal {
+        /// The notification id on which the signal was emitted.
+        ///
+        /// Note that, by default, a notification may be valid longer than what this
+        /// program perceives as valid (e.g. *max* option set to 10 on the daemon,
+        /// but the user's program stores 11 notifications in memory).
+        ///
+        /// As such, to preserve validity, this will only execute if:
+        /// (1) the notification isn't previously closed in the logs and
+        /// (2) the notification is stored in the logs
+        ///
+        /// To force the signal to be emitted, use --force option, however,
+        /// signaling a closed notification will lead to undefined behaviour
+        /// as it is breaking the official protocol.
+        ///
+        /// No guarantees are made relating to the signal ordering.
+        id: Nid,
+
+        /// Forces the signal to be emitted.
+        #[arg(short, long, default_value_t = false)]
+        force: bool,
+
+        /// The signal kind that will be sent.
+        #[command(subcommand)]
+        kind: SignalKind,
+    },
+}
+
+#[derive(Subcommand, PartialEq, Eq)]
+pub enum SignalKind {
+    /// Signals that the user has closed the notification.
+    Closed {
+        /// Queries whether a notification is currently closed.
+        #[arg(short, long, default_value_t = false)]
+        query: bool,
+    },
+    /// Signals an action to be invoked.
+    ActionInvoked { action: String },
+    /// An activation token. See protocol for more info.
+    ActivationToken { token: String },
 }
 
 pub const CAPABILITIES_ENUMERATED: [&'static str; 10] = [

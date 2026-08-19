@@ -24,7 +24,7 @@ impl Job for Read {
                 ))
                 .unwrap(),
             )),
-            FulfilledJobResultType::Notifications,
+            FulfilledJobResultType::Results,
         )
     }
 

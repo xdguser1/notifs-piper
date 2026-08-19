@@ -223,11 +223,38 @@ impl Listener {
                             }
                             old.iter().for_each(|val| { lock.remove(val); });
                             let nextl = old.len();
-                            Logger::cdebug(format!("(LISTENING THREAD): Current broadcasting list: {} - {} = {} processes left.", prevl, nextl, prevl - nextl).as_str(), None);
+                            Logger::cdebug(
+                                format!(
+                                    "(LISTENING THREAD): Current broadcasting list: {} - {} = {} processes left.",
+                                    prevl,
+                                    nextl,
+                                    prevl - nextl
+                                ).as_str(),
+                                None
+                            );
 
-                            if read && let Ok(not) = FulfilledJob::from_str_static(&trans.data) && let FulfilledJobResultType::Notifications = not.typ {
+                            if read
+                                && let Ok(not) = FulfilledJob::from_str_static(&trans.data)
+                                && let FulfilledJobResultType::Results = not.typ
+                            {
                                 Logger::cdebug("(LISTENING THREAD): Modifying 'read' state of new notification to 'true'.", None);
-                                acquire_lock!(sl, "sync_list", lock, lock.push_back(JobDesc::new(Box::new(Acknowledge(serde_json::from_str::<NotificationEvent>(not.result.unwrap().unwrap().as_str()).unwrap().get_id())), Desc::new(0, 0))));
+                                acquire_lock!(
+                                    sl,
+                                    "sync_list",
+                                    lock,
+                                    lock.push_back(
+                                        JobDesc::new(
+                                            Box::new(
+                                                Acknowledge(
+                                                    serde_json::from_str::<NotificationEvent>(
+                                                        not.result.unwrap().unwrap().as_str()
+                                                    ).unwrap().id()
+                                                )
+                                            ),
+                                            Desc::new(0, 0)
+                                        )
+                                    )
+                                );
 
                                 notify_manager!(sn);
                             }

@@ -1,3 +1,7 @@
+// LOW PRIORITY TODOS
+// TODO(refactor): Refactor jobs with macros
+// TODO(refactor): Add derive macro for Payload
+
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
@@ -8,13 +12,17 @@ use super::transmission::{Payload, PayloadError};
 pub(super) use self::acknowledge::*;
 pub use self::broadcast::*;
 pub use self::close::*;
+pub use self::query::*;
 pub use self::read::*;
+pub use self::signals::*;
 pub use self::watch::*;
 
 mod acknowledge;
 mod broadcast;
 mod close;
+mod query;
 mod read;
+mod signals;
 mod watch;
 
 pub type FlagsRepr = u8;
@@ -44,8 +52,12 @@ fn from_str_static_dyn_payload(data: &str) -> Result<Box<dyn Job>, PayloadError>
 
     Ok(match typ {
         "broadcast" => branch!(Broadcast),
+        "close" => branch!(Close),
         "read" => branch!(Read),
         "watch" => branch!(Watch),
+        "action" => branch!(ActionInvoked),
+        "activation" => branch!(ActivationToken),
+        "query" => branch!(Query),
         _ => {
             unreachable!("Someone forgot to put their canonical name here.");
         }
@@ -54,6 +66,8 @@ fn from_str_static_dyn_payload(data: &str) -> Result<Box<dyn Job>, PayloadError>
 
 pub enum EventType {
     Close(Nid),
+    ActionInvoked(Nid, String),
+    ActivationToken(Nid, String),
 }
 
 impl Payload for EventType {
@@ -68,10 +82,44 @@ impl Payload for EventType {
             "cls" => Ok(EventType::Close(rest.parse::<Nid>().map_err(|err| {
                 PayloadError::new(
                     typ.to_owned(),
-                    "Could not parse 'nid' for 'EventType' type 'Close'".to_owned(),
+                    "Could not parse 'nid' for 'EventType' type 'Close'.".to_owned(),
                     err.to_string(),
                 )
             })?)),
+            "act" => {
+                let (nid, act) = rest.split_once('#').ok_or(PayloadError::new(
+                    rest.to_owned(),
+                    "'#' was not found in split.".to_owned(),
+                    String::new(),
+                ))?;
+                Ok(EventType::ActionInvoked(
+                    nid.parse::<Nid>().map_err(|err| {
+                        PayloadError::new(
+                            nid.to_owned(),
+                            "Cannot parse 'nid' for 'EventType'.".to_owned(),
+                            err.to_string(),
+                        )
+                    })?,
+                    act.to_owned(),
+                ))
+            }
+            "acv" => {
+                let (nid, acv) = rest.split_once('#').ok_or(PayloadError::new(
+                    rest.to_owned(),
+                    "'#' was not found in split.".to_owned(),
+                    String::new(),
+                ))?;
+                Ok(EventType::ActivationToken(
+                    nid.parse::<Nid>().map_err(|err| {
+                        PayloadError::new(
+                            nid.to_owned(),
+                            "Cannot parse 'nid' for 'EventType'.".to_owned(),
+                            err.to_string(),
+                        )
+                    })?,
+                    acv.to_owned(),
+                ))
+            }
             _ => Err(PayloadError::new(
                 typ.to_owned(),
                 "Bad type for 'EventType'".to_owned(),
@@ -81,14 +129,18 @@ impl Payload for EventType {
     }
 
     fn to_string(&self) -> String {
-        match *self {
+        match self {
             EventType::Close(nid) => format!("cls#{}", nid),
+            EventType::ActionInvoked(nid, action_key) => format!("act#{}#{}", nid, action_key),
+            EventType::ActivationToken(nid, activation_token) => {
+                format!("acv#{}#{}", nid, activation_token)
+            }
         }
     }
 }
 
 pub enum FulfilledJobResultType {
-    Notifications,
+    Results,
     Event(EventType),
     Other,
 }
@@ -124,13 +176,17 @@ impl Payload for FulfilledJob {
                 Err(data.to_owned()),
                 FulfilledJobResultType::Other,
             )),
-            "not" => Ok(FulfilledJob::new(
+            "res" => Ok(FulfilledJob::new(
                 Ok(Some(data.to_owned())),
-                FulfilledJobResultType::Notifications,
+                FulfilledJobResultType::Results,
             )),
             "ev" => Ok(FulfilledJob::new(
                 Ok(None),
                 FulfilledJobResultType::Event(EventType::from_str_static(data)?),
+            )),
+            "oth" => Ok(FulfilledJob::new(
+                Ok(Some(data.to_owned())),
+                FulfilledJobResultType::Other,
             )),
             _ => Err(PayloadError::new(
                 typ.to_owned(),
@@ -144,12 +200,14 @@ impl Payload for FulfilledJob {
         if let FulfilledJobResultType::Event(ev) = &self.typ {
             // Anything that is in "result" will be ignored.
             return format!("ev#{}", ev.to_string());
+        } else if let FulfilledJobResultType::Other = &self.typ {
+            return format!("oth#{:?}", &self.result);
         }
 
         match &self.result {
             Err(err) => format!("err#{}", err),
             Ok(opt) if opt.as_ref().is_some_and(|v| !v.is_empty()) => {
-                format!("not#{}", opt.as_ref().clone().unwrap())
+                format!("res#{}", opt.as_ref().clone().unwrap())
             }
             _ => "".to_owned(),
         }
@@ -159,8 +217,9 @@ impl Payload for FulfilledJob {
 #[repr(u8)]
 #[derive(Copy, Clone)]
 pub enum Flags {
-    NONE = 0,
-    SILENT = 1,
+    NONE = 0x00,
+    SILENT = 0x01,
+    FORCE = 0x02,
 }
 
 impl Flags {

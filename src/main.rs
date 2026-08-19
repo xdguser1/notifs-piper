@@ -6,11 +6,14 @@ use std::fs;
 use clap::Parser;
 use tokio::{net::UnixStream, runtime::Builder};
 
-use cli::{CAPABILITIES_ENUMERATED, Cli, Sub};
+use cli::{CAPABILITIES_ENUMERATED, Cli, SignalKind, Sub};
 use server::{
     ServerConfig,
     dbus::CAPABILITIES,
-    jobs::{Desc, Flags, FlagsRepr, JobDesc, Read, Watch},
+    jobs::{
+        ActionInvoked, ActivationToken, Close, Desc, Flags, FlagsRepr, Job, JobDesc,
+        NotificationClosed, Query, Read, Watch,
+    },
     listener::Listener,
     manager::LogsConfig,
     transmission::{Payload, Transmission, TransmissionType},
@@ -33,6 +36,9 @@ fn main() {
 
     macro_rules! send_job {
         ($us:ident, $job:expr, $($flags:expr)*; $($rest:tt)*) => {
+            send_job!($us, $job, std::process::id(), $($flags)*; $($rest)*);
+        };
+        ($us:ident, $job:expr, $pid:expr, $($flags:expr)*; $($rest:tt)*) => {
              Builder::new_current_thread()
                 .enable_io()
                 .build()
@@ -44,18 +50,17 @@ fn main() {
                         return;
                     };
 
-                    let pid = std::process::id();
-
                     Logger::cdebug("Sending new transmission...", None);
                     if let Err(err) = Listener::write(
                         &$us,
                         &Transmission::new(
-                            TransmissionType::Incoming(pid),
+                            TransmissionType::Incoming($pid),
                             JobDesc::new(
-                                Box::new($job),
+                                $job,
                                 Desc::new(
-                                    pid,
+                                    $pid,
                                     {
+                                        #[allow(unused_mut)]
                                         let mut fcon = Flags::NONE as FlagsRepr;
                                         $(
                                             fcon = Flags::join(
@@ -80,14 +85,71 @@ fn main() {
         };
     }
 
+    macro_rules! send_job_and_read {
+        ($us:ident, $job:expr, $($flags:expr)*) => {
+            send_job!(
+                $us,
+                $job,
+                $($flags)*;
+                /*---------------------------------------------*/
+                match Listener::read(&$us).await {
+                    Ok(tr) => {
+                        println!("{}", tr.data);
+                    },
+                    Err(err) => {
+                        Logger::error(format!("Could not connect to server.\nReason: {}", err.to_string()).as_str());
+                    },
+                }
+            );
+        }
+    }
+
     Logger::cdebug("~~ Debugging session ~~", Some(parsed.debug));
 
     match parsed.subcommand {
+        Sub::Signal { id, force, kind } => {
+            if let SignalKind::Closed { query } = kind
+                && query
+            {
+                send_job_and_read!(us, Box::new(Query(id)) as Box<dyn Job>,);
+                return;
+            }
+
+            send_job!(
+                us,
+                match &kind {
+                    SignalKind::Closed { query: _ } => {
+                        Box::new(Close::new(id, NotificationClosed::Dismissed)) as Box<dyn Job>
+                    },
+                    SignalKind::ActionInvoked { action } => {
+                        Box::new(ActionInvoked::new(id, action.clone())) as Box<dyn Job>
+                    },
+                    SignalKind::ActivationToken { token } => {
+                        Box::new(ActivationToken::new(id, token.clone())) as Box<dyn Job>
+                    },
+                },
+                0,
+                if force { Flags::FORCE } else { Flags::NONE };
+                /*********************************************/
+                if let SignalKind::Closed { query } = kind && query {
+                    match Listener::read(&us).await {
+                        Ok(tr) => {
+                            println!("{}", tr.data);
+                        },
+                        Err(err) => {
+                            Logger::error(format!("Could not connect to server.\nReason: {}", err.to_string()).as_str());
+                        },
+                    }
+                }
+            );
+        }
         Sub::Daemon {
             logs_file,
             max,
             options,
             all,
+            auto_close,
+            timeout,
         } => {
             Logger::cdebug(format!("Running daemon in '{}'.", path).as_str(), None);
 
@@ -124,7 +186,11 @@ fn main() {
             let Err(err) = server::start_server(ServerConfig {
                 listener_path,
                 logs_path,
-                logs_config: LogsConfig { max_logs: max },
+                logs_config: LogsConfig {
+                    max_logs: max,
+                    auto_close,
+                    default_timeout: timeout,
+                },
             });
 
             Logger::error(
@@ -143,25 +209,16 @@ fn main() {
             skip,
             silent,
         } => {
-            send_job!(
+            send_job_and_read!(
                 us,
-                Read::new(skip, skip + count),
-                if silent { Flags::SILENT } else { Flags::NONE };
-                /*---------------------------------------------*/
-                match Listener::read(&us).await {
-                    Ok(tr) => {
-                        println!("{}", tr.data);
-                    },
-                    Err(err) => {
-                        Logger::error(format!("Could not connect to server.\nReason: {}", err.to_string()).as_str());
-                    },
-                };
+                Box::new(Read::new(skip, skip + count)),
+                if silent { Flags::SILENT } else { Flags::NONE }
             );
         }
         Sub::Watch { silent } => {
             send_job!(
                 us,
-                Watch,
+                Box::new(Watch),
                 if silent { Flags::SILENT } else { Flags::NONE };
                 /*---------------------------------------------*/
                 while let Ok(tr) = Listener::read(&us).await {

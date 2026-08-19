@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, OnceLock, mpsc::Sender};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use zbus::{interface, object_server::SignalEmitter, zvariant::OwnedValue};
@@ -22,6 +22,7 @@ pub struct NotificationEvent {
     id: Nid,
     time: u128,
     pub read: bool,
+    closed: bool,
     app_name: String,
     replaces_id: Nid,
     app_icon: String,
@@ -33,11 +34,33 @@ pub struct NotificationEvent {
 }
 
 impl NotificationEvent {
-    pub const fn get_id(&self) -> Nid {
+    #[inline(always)]
+    pub const fn time(&self) -> u128 {
+        self.time
+    }
+
+    #[inline(always)]
+    pub const fn timeout(&self) -> i32 {
+        self.timeout
+    }
+
+    #[inline(always)]
+    pub const fn id(&self) -> Nid {
         self.id
     }
 
-    pub const fn get_replacement(&self) -> Nid {
+    #[inline(always)]
+    pub const fn set_closed(&mut self) {
+        self.closed = true;
+    }
+
+    #[inline(always)]
+    pub const fn is_closed(&self) -> bool {
+        self.closed
+    }
+
+    #[inline(always)]
+    pub const fn replacement(&self) -> Nid {
         self.replaces_id
     }
 }
@@ -70,6 +93,7 @@ impl Notifications {
             Ok(mut sync_list) => {
                 Logger::cdebug("Job scheduled for execution.", None);
                 sync_list.push_back(desc);
+                self.sender.send(()).unwrap();
             }
         }
     }
@@ -96,6 +120,7 @@ impl Notifications {
         Logger::cdebug("Received new notification. Creating job.", None);
 
         let id = if replaces_id == 0 {
+            // Do not change these lines, since they guarantee Nid is not 0
             self.counter += 1;
             self.counter
         } else {
@@ -106,10 +131,11 @@ impl Notifications {
             Box::new(Broadcast::new(NotificationEvent {
                 id,
                 time: SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .duration_since(UNIX_EPOCH)
                     .unwrap_or(Duration::new(0, 0))
                     .as_millis(),
                 read: false,
+                closed: false,
                 app_name,
                 replaces_id,
                 app_icon,
@@ -121,8 +147,6 @@ impl Notifications {
             })),
             Desc::new(0, 0),
         ));
-
-        self.sender.send(()).unwrap();
 
         id
     }
@@ -191,13 +215,13 @@ impl NotificationsWrapper {
     pub async fn action_invoked(
         emitter: &SignalEmitter<'_>,
         id: Nid,
-        action_key: String,
+        action_key: &str,
     ) -> zbus::Result<()>;
 
     #[zbus(signal)]
     pub async fn activation_token(
         emitter: &SignalEmitter<'_>,
         id: Nid,
-        activation_token: String,
+        activation_token: &str,
     ) -> zbus::Result<()>;
 }
