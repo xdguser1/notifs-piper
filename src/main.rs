@@ -1,22 +1,22 @@
 #![feature(never_type)]
 
 use std::env;
-use std::fs;
 use std::fmt::Display;
+use std::fs;
 use std::io;
 use std::path::Path;
 
 use clap::Parser;
 use tokio::net::UnixStream;
 
-use consts::CAPABILITIES_ENUMERATED;
 use cli::{Cli, SignalKind, Sub};
+use consts::CAPABILITIES_ENUMERATED;
 use server::{
     ServerConfig,
     dbus::CAPABILITIES,
     jobs::{
         ActionInvoked, ActivationToken, Close, Desc, Flags, FlagsRepr, Job, JobDesc,
-        NotificationClosed, Query, Read, Watch, Pid
+        NotificationClosed, Pid, Query, Read, Watch,
     },
     listener::Listener,
     manager::LogsConfig,
@@ -24,10 +24,7 @@ use server::{
 };
 use utils::{
     logger::Logger,
-    macros::{
-        utilities::expand_option,
-        async_rt::block_on_io,
-    },
+    macros::{async_rt::block_on_io, utilities::expand_option},
 };
 
 mod cli;
@@ -76,18 +73,24 @@ macro_rules! send_once_and_print {
 
 async fn connect<P>(path: P) -> io::Result<UnixStream>
 where
-    P: AsRef<Path> + Display {
+    P: AsRef<Path> + Display,
+{
     match UnixStream::connect(&path).await {
-        Ok(stream) => { Ok(stream) },
+        Ok(stream) => Ok(stream),
         Err(err) => {
             Logger::error(format!("Could not connect to server at '{}'.", path).as_str());
             Logger::info("Check if the notifs-piper daemon is enabled with 'busctl --user list'");
             Err(err)
-        },
+        }
     }
 }
 
-async fn send(stream: &UnixStream, job: Box<dyn Job>, flags: FlagsRepr, pid: Option<Pid>) -> io::Result<()> {
+async fn send(
+    stream: &UnixStream,
+    job: Box<dyn Job>,
+    flags: FlagsRepr,
+    pid: Option<Pid>,
+) -> io::Result<()> {
     Logger::cdebug("Sending new transmission...", None);
 
     let pid = pid.unwrap_or_else(|| std::process::id());
@@ -96,13 +99,14 @@ async fn send(stream: &UnixStream, job: Box<dyn Job>, flags: FlagsRepr, pid: Opt
         stream,
         &Transmission::new(
             TransmissionType::Incoming(pid),
-            JobDesc::new(
-                job,
-                Desc::new(pid, flags)
-            ).to_string()
-        )
-    ).await {
-        Logger::error(format!("Could not connect to server.\nReason: {}", err.to_string()).as_str());
+            JobDesc::new(job, Desc::new(pid, flags)).to_string(),
+        ),
+    )
+    .await
+    {
+        Logger::error(
+            format!("Could not connect to server.\nReason: {}", err.to_string()).as_str(),
+        );
         return Err(err);
     }
 
@@ -113,11 +117,13 @@ async fn send(stream: &UnixStream, job: Box<dyn Job>, flags: FlagsRepr, pid: Opt
 
 async fn read(stream: &UnixStream) -> io::Result<Transmission> {
     match Listener::read(&stream).await {
-        Ok(trans) => { Ok(trans) },
+        Ok(trans) => Ok(trans),
         Err(err) => {
-            Logger::error(format!("Could not connect to server.\nReason: {}", err.to_string()).as_str());
+            Logger::error(
+                format!("Could not connect to server.\nReason: {}", err.to_string()).as_str(),
+            );
             Err(err)
-        },
+        }
     }
 }
 
@@ -135,21 +141,23 @@ fn main() {
     match parsed.subcommand {
         Sub::Signal { id, force, kind } => {
             block_on_io!(async move {
-                if let SignalKind::Closed { query } = kind && query {
+                if let SignalKind::Closed { query } = kind
+                    && query
+                {
                     send_once_and_print!(listener_path, Box::new(Query(id)), /* No flags */ ;);
                     return;
                 }
 
                 let job: Box<dyn Job> = match &kind {
-                    SignalKind::Closed { query: _ /* false */ } => {
-                        Box::new(Close::new(id, NotificationClosed::Dismissed)) as Box<dyn Job>
-                    },
+                    SignalKind::Closed {
+                        query: _, /* false */
+                    } => Box::new(Close::new(id, NotificationClosed::Dismissed)) as Box<dyn Job>,
                     SignalKind::ActionInvoked { action } => {
                         Box::new(ActionInvoked::new(id, action.clone())) as Box<dyn Job>
-                    },
+                    }
                     SignalKind::ActivationToken { token } => {
                         Box::new(ActivationToken::new(id, token.clone())) as Box<dyn Job>
-                    },
+                    }
                 };
 
                 send!(listener_path, job, if force { Flags::FORCE } else { Flags::NONE }; 0);
@@ -232,7 +240,9 @@ fn main() {
                 while let Ok(trans) = Listener::read(&stream).await {
                     println!("{}", trans.data);
                 }
-                Logger::error("Could not connect to server. Check daemon logs for more information.");
+                Logger::error(
+                    "Could not connect to server. Check daemon logs for more information.",
+                );
             });
         }
     }

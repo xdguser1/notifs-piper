@@ -1,19 +1,15 @@
 use std::collections::HashMap;
-use std::error::Error;
-use std::sync::{Arc, OnceLock, mpsc::Sender};
+use std::sync::{OnceLock, mpsc::Sender};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use zbus::{interface, object_server::SignalEmitter, zvariant::OwnedValue};
 
-use crate::consts::{NAME, NOTIFICATIONS_PROT_VER, VERSION};
-use crate::utils::{
-    logger::Logger,
-    macros::multithread::acquire_lock_panic,
-};
 use super::jobs::{
     Broadcast, Close, Desc, JobDesc, NotificationClosed, NotificationClosedRepr, SyncList,
 };
+use crate::consts::{NAME, NOTIFICATIONS_PROT_VER, VERSION};
+use crate::utils::{logger::Logger, macros::multithread::acquire_lock_panic};
 
 pub static CAPABILITIES: OnceLock<Vec<&'static str>> = OnceLock::new();
 
@@ -86,13 +82,20 @@ unsafe impl Sync for Notifications {}
 
 impl Notifications {
     fn push_job(&self, desc: JobDesc) {
-        let mut lock = acquire_lock_panic!(self.list.lock(), "Notifications");
+        let mut lock = acquire_lock_panic!(self.list.lock(), "Notifications",);
         lock.push_back(desc);
-        self.sender.send(()).unwrap();
+        if let Err(_) = self.sender.send(()) {
+            Logger::error("(DBUS THREAD): !!FATAL ERROR!! Manager thread is down.");
+            panic!();
+        }
     }
 
     pub fn new(counter: Nid, list: SyncList, sender: Sender<()>) -> Notifications {
-        Notifications { counter, list, sender, }
+        Notifications {
+            counter,
+            list,
+            sender,
+        }
     }
 
     pub fn notify(

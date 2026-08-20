@@ -1,6 +1,6 @@
 macro_rules! export_crate {
     ($name:ident) => {
-        pub(crate) use $name as $name;
+        pub(crate) use $name;
     };
 }
 export_crate![export_crate];
@@ -34,7 +34,7 @@ pub mod multithread {
     use super::export_crate;
 
     macro_rules! acquire_lock_panic {
-        ($lock_expr:expr, $source:literal) => {
+        ($lock_expr:expr, $source:literal, $($rest:stmt)*) => {
             {
                 match $lock_expr {
                     #[allow(unused_mut)]
@@ -42,7 +42,7 @@ pub mod multithread {
                     Err(poison) => {
                         $crate::utils::logger::Logger::error(
                             format!(
-                                "{}\n{}\n{}",
+                                "{}\n{}",
                                 format!(
                                     concat!(
                                         "!!FATAL ERROR!! A thread panicked while holding the lock in '",
@@ -51,10 +51,10 @@ pub mod multithread {
                                     ),
                                     line!(),
                                 ),
-                                format!("Source: {}", poison.source().unwrap()),
                                 format!("Description: {}", poison),
                             ).as_str()
                         );
+                        $($rest)*
                         panic!();
                     },
                 }
@@ -68,53 +68,54 @@ pub mod parse {
     use super::export_crate;
 
     macro_rules! split_once {
-        ($data:ident, $delimiter:literal) => {
-            {
-                $data.split_once($delimiter).ok_or_else(|| $crate::server::transmission::PayloadError::new(
+        ($data:ident, $delimiter:literal) => {{
+            $data.split_once($delimiter).ok_or_else(|| {
+                $crate::server::transmission::PayloadError::new(
                     $data.to_owned(),
                     concat!(
                         "Pattern [",
                         stringify!($delimiter),
                         "] was not found in split.",
-                    ).to_owned(),
+                    )
+                    .to_owned(),
                     String::new(),
-                ))?
-            }
-        };
-        ($data:ident, $delimiter:pat_param) => {
-            {
-                $data.split_once($delimiter).ok_or_else(|| $crate::server::transmission::PayloadError::new(
+                )
+            })?
+        }};
+        ($data:ident, $delimiter:pat_param) => {{
+            $data.split_once($delimiter).ok_or_else(|| {
+                $crate::server::transmission::PayloadError::new(
                     $data.to_owned(),
                     concat!(
                         "Pattern [",
                         stringify!($delimiter),
                         "] was not found in split.",
-                    ).to_owned(),
+                    )
+                    .to_owned(),
                     String::new(),
-                ))?
-            }
-        };
+                )
+            })?
+        }};
     }
     export_crate![split_once];
 
     macro_rules! parse {
-        ($data:ident, $type:ty, $struct:literal) => {
-            {
-                $data.parse::<$type>().map_err(|err| {
-                    $crate::server::transmission::PayloadError::new(
-                        $data.to_owned(),
-                        concat!(
-                            "Invalid parsing for type '",
-                            stringify!($type),
-                            "' in structure '",
-                            $struct,
-                            "'.",
-                        ).to_owned(),
-                        err.to_string(),
+        ($data:ident, $type:ty, $struct:literal) => {{
+            $data.parse::<$type>().map_err(|err| {
+                $crate::server::transmission::PayloadError::new(
+                    $data.to_owned(),
+                    concat!(
+                        "Invalid parsing for type '",
+                        stringify!($type),
+                        "' in structure '",
+                        $struct,
+                        "'.",
                     )
-                })?
-            }
-        };
+                    .to_owned(),
+                    err.to_string(),
+                )
+            })?
+        }};
     }
     export_crate![parse];
 }
@@ -123,8 +124,12 @@ pub mod utilities {
     use super::export_crate;
 
     macro_rules! expand_option {
-        () => { None };
-        ($val:expr) => { Some($val) };
+        () => {
+            None
+        };
+        ($val:expr) => {
+            Some($val)
+        };
     }
     export_crate![expand_option];
 }

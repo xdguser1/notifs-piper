@@ -1,5 +1,5 @@
-use crate::utils::macros::parse::{split_once, parse};
 use super::jobs::{FulfilledJob, Pid};
+use crate::utils::macros::parse::{parse, split_once};
 
 pub trait Payload {
     fn from_str_static(data: &str) -> Result<Self, PayloadError>

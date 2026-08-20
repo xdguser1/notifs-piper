@@ -43,7 +43,7 @@ pub fn start(config: ServerConfig) -> Result<!, zbus::Error> {
     let listener = Listener::new(
         config.listener_path.as_str(),
         Arc::clone(&list),
-        snd.clone()
+        snd.clone(),
     );
 
     let mut manager = LogsManager::new(
@@ -81,17 +81,14 @@ pub fn start(config: ServerConfig) -> Result<!, zbus::Error> {
 
     Logger::cdebug("Removing previous socket.", None);
     match fs::remove_file(&config.listener_path) {
-        Ok(_) => { },
-        Err(err) if err.kind() == ErrorKind::NotFound => { },
+        Ok(_) => {}
+        Err(err) if err.kind() == ErrorKind::NotFound => {}
         Err(err) => {
             Logger::error(
-                format!(
-                    "Could not remove old socket.\nReason: {}",
-                    err.to_string()
-                ).as_str()
+                format!("Could not remove old socket.\nReason: {}", err.to_string()).as_str(),
             );
             panic!();
-        },
+        }
     };
 
     Logger::cdebug("Starting listener.", None);
@@ -110,7 +107,9 @@ pub fn start(config: ServerConfig) -> Result<!, zbus::Error> {
                         }
                         ExecState::Error => {
                             // The error was sent back in exec. No need to print to stderr
-                            Logger::info("(MANAGER THREAD): An error occurred while processing a request.");
+                            Logger::info(
+                                "(MANAGER THREAD): An error occurred while processing a request.",
+                            );
                         }
                         ExecState::Noop => {
                             unreachable!(

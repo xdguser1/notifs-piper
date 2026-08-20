@@ -3,8 +3,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use clap::{Parser, Subcommand};
 
-use crate::server::dbus::Nid;
 use crate::consts::CAPABILITIES_ENUMERATED;
+use crate::server::dbus::Nid;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -118,7 +118,8 @@ fn opts_checker(val: &str) -> Result<String, String> {
             return Err(concat!(
                 "'icon-static' and 'icon-multi' are mutually exclusive.",
                 "Please refer to the docs from freedesktop.org for the Notifications interface."
-            ).to_string());
+            )
+            .to_string());
         }
 
         MUTUALLY_EXCLUDED_ICON.store(true, Ordering::Relaxed);

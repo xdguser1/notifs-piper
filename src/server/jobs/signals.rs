@@ -20,23 +20,21 @@ macro_rules! derive_signal {
 
         impl Job for $name {
             fn execute(self: Box<Self>, desc: &Desc, man: &mut LogsManager) -> FulfilledJob {
-                if man.find(self.id).is_none_or(|ne| ne.is_closed()) && !Flags::FORCE.is(desc.flags) {
-                    return FulfilledJob::new(
-                        Ok(None),
-                        FulfilledJobResultType::Other,
-                    );
+                if man.find(self.id).is_none_or(|ne| ne.is_closed()) && !Flags::FORCE.is(desc.flags)
+                {
+                    return FulfilledJob::new(Ok(None), FulfilledJobResultType::Other);
                 }
 
                 Logger::cdebug("(MANAGER THREAD): Sending special signal.", None);
 
-               let run = Builder::new_current_thread().build_local(LocalOptions::default());
+                let run = Builder::new_current_thread().build_local(LocalOptions::default());
 
-               if run.is_err() {
-                   return FulfilledJob::new(
-                       Err(run.unwrap_err().to_string()),
-                       FulfilledJobResultType::Other,
-                   );
-               }
+                if run.is_err() {
+                    return FulfilledJob::new(
+                        Err(run.unwrap_err().to_string()),
+                        FulfilledJobResultType::Other,
+                    );
+                }
 
                 let res = run.unwrap().block_on(async {
                     if let Some(ref con) = man.interface {
@@ -55,7 +53,7 @@ macro_rules! derive_signal {
 
                 FulfilledJob::new(
                     res.map_err(|stg| stg.to_owned()),
-                    FulfilledJobResultType::Event(EventType::$name(self.id, self.$data_name))
+                    FulfilledJobResultType::Event(EventType::$name(self.id, self.$data_name)),
                 )
             }
 
@@ -73,11 +71,13 @@ macro_rules! derive_signal {
                 ))?;
 
                 Ok($name::new(
-                    id.parse::<Nid>().map_err(|err| PayloadError::new(
-                        id.to_owned(),
-                        "Cannot parse 'id' for signal".to_owned(),
-                        err.to_string()
-                    ))?,
+                    id.parse::<Nid>().map_err(|err| {
+                        PayloadError::new(
+                            id.to_owned(),
+                            "Cannot parse 'id' for signal".to_owned(),
+                            err.to_string(),
+                        )
+                    })?,
                     $data_name.to_owned(),
                 ))
             }
