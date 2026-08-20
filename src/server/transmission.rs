@@ -1,3 +1,4 @@
+use crate::utils::macros::parse::{split_once, parse};
 use super::jobs::{FulfilledJob, Pid};
 
 pub trait Payload {
@@ -21,19 +22,8 @@ impl Payload for TransmissionType {
             return Ok(TransmissionType::Error);
         }
 
-        let (first, second) = data.split_once('#').ok_or(PayloadError::new(
-            data.to_owned(),
-            "'#' was not found in split.".to_owned(),
-            String::new(),
-        ))?;
-
-        let second = second.parse::<Pid>().map_err(|err| {
-            PayloadError::new(
-                second.to_owned(),
-                "Error while parsing 'pid' for 'TransmissionType'.".to_owned(),
-                err.to_string(),
-            )
-        })?;
+        let (first, second) = split_once!(data, '#');
+        let second = parse!(second, Pid, "TransmissionType");
 
         match first {
             "inc" => Ok(TransmissionType::Incoming(second)),
@@ -75,11 +65,7 @@ impl Transmission {
 
 impl Payload for Transmission {
     fn from_str_static(data: &str) -> Result<Self, PayloadError> {
-        let (first, second) = data.split_once("##").ok_or(PayloadError::new(
-            data.to_owned(),
-            "'##' was not found in split.".to_owned(),
-            String::new(),
-        ))?;
+        let (first, second) = split_once!(data, "##");
 
         Ok(Transmission {
             typ: TransmissionType::from_str_static(first)?,
@@ -92,7 +78,6 @@ impl Payload for Transmission {
     }
 }
 
-#[allow(unused)]
 pub struct PayloadError {
     pub data: String,
     pub error: String,

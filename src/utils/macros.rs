@@ -64,6 +64,61 @@ pub mod multithread {
     export_crate![acquire_lock_panic];
 }
 
+pub mod parse {
+    use super::export_crate;
+
+    macro_rules! split_once {
+        ($data:ident, $delimiter:literal) => {
+            {
+                $data.split_once($delimiter).ok_or_else(|| $crate::server::transmission::PayloadError::new(
+                    $data.to_owned(),
+                    concat!(
+                        "Pattern [",
+                        stringify!($delimiter),
+                        "] was not found in split.",
+                    ).to_owned(),
+                    String::new(),
+                ))?
+            }
+        };
+        ($data:ident, $delimiter:pat_param) => {
+            {
+                $data.split_once($delimiter).ok_or_else(|| $crate::server::transmission::PayloadError::new(
+                    $data.to_owned(),
+                    concat!(
+                        "Pattern [",
+                        stringify!($delimiter),
+                        "] was not found in split.",
+                    ).to_owned(),
+                    String::new(),
+                ))?
+            }
+        };
+    }
+    export_crate![split_once];
+
+    macro_rules! parse {
+        ($data:ident, $type:ty, $struct:literal) => {
+            {
+                $data.parse::<$type>().map_err(|err| {
+                    $crate::server::transmission::PayloadError::new(
+                        $data.to_owned(),
+                        concat!(
+                            "Invalid parsing for type '",
+                            stringify!($type),
+                            "' in structure '",
+                            $struct,
+                            "'.",
+                        ).to_owned(),
+                        err.to_string(),
+                    )
+                })?
+            }
+        };
+    }
+    export_crate![parse];
+}
+
 pub mod utilities {
     use super::export_crate;
 
