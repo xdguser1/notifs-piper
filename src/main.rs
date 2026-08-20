@@ -2,28 +2,124 @@
 
 use std::env;
 use std::fs;
+use std::fmt::Display;
+use std::io;
+use std::path::Path;
 
 use clap::Parser;
-use tokio::{net::UnixStream, runtime::Builder};
+use tokio::net::UnixStream;
 
-use cli::{CAPABILITIES_ENUMERATED, Cli, SignalKind, Sub};
+use consts::CAPABILITIES_ENUMERATED;
+use cli::{Cli, SignalKind, Sub};
 use server::{
     ServerConfig,
     dbus::CAPABILITIES,
     jobs::{
         ActionInvoked, ActivationToken, Close, Desc, Flags, FlagsRepr, Job, JobDesc,
-        NotificationClosed, Query, Read, Watch,
+        NotificationClosed, Query, Read, Watch, Pid
     },
     listener::Listener,
     manager::LogsConfig,
     transmission::{Payload, Transmission, TransmissionType},
 };
-use utils::logger::Logger;
+use utils::{
+    logger::Logger,
+    macros::{
+        utilities::expand_option,
+        async_rt::block_on_io,
+    },
+};
 
 mod cli;
 mod consts;
 mod server;
 mod utils;
+
+macro_rules! send {
+    ($path:ident, $job:expr, $($flags:expr),*; $($pid:literal)?) => {
+        {
+            let Ok(stream) = connect($path).await else { return; };
+
+            #[allow(unused_mut)]
+            let mut flags: FlagsRepr = Flags::NONE as FlagsRepr;
+            $(
+                flags = Flags::join(flags, $flags);
+            )*
+
+            let Ok(_) = send(&stream, $job, flags, expand_option!($($pid)?)).await else { return; };
+
+            stream
+        }
+    };
+}
+
+macro_rules! send_once {
+    ($path:ident, $job:expr, $($flags:expr),*; $($pid:literal)?) => {
+        {
+            let stream = send!($path, $job, $($flags)*; $($pid)?);
+
+            let Ok(trans) = read(&stream).await else { return; };
+
+            trans
+        }
+    };
+}
+
+macro_rules! send_once_and_print {
+    ($path:ident, $job:expr, $($flags:expr),*; $($pid:literal)?) => {
+        {
+            let trans = send_once!($path, $job, $($flags)*; $($pid)?);
+            println!("{}", trans.to_string());
+        }
+    };
+}
+
+async fn connect<P>(path: P) -> io::Result<UnixStream>
+where
+    P: AsRef<Path> + Display {
+    match UnixStream::connect(&path).await {
+        Ok(stream) => { Ok(stream) },
+        Err(err) => {
+            Logger::error(format!("Could not connect to server at '{}'.", path).as_str());
+            Logger::info("Check if the notifs-piper daemon is enabled with 'busctl --user list'");
+            Err(err)
+        },
+    }
+}
+
+async fn send(stream: &UnixStream, job: Box<dyn Job>, flags: FlagsRepr, pid: Option<Pid>) -> io::Result<()> {
+    Logger::cdebug("Sending new transmission...", None);
+
+    let pid = pid.unwrap_or_else(|| std::process::id());
+
+    if let Err(err) = Listener::write(
+        stream,
+        &Transmission::new(
+            TransmissionType::Incoming(pid),
+            JobDesc::new(
+                job,
+                Desc::new(pid, flags)
+            ).to_string()
+        )
+    ).await {
+        Logger::error(format!("Could not connect to server.\nReason: {}", err.to_string()).as_str());
+        return Err(err);
+    }
+
+    Logger::cdebug("Transmission sent.", None);
+
+    Ok(())
+}
+
+async fn read(stream: &UnixStream) -> io::Result<Transmission> {
+    match Listener::read(&stream).await {
+        Ok(trans) => { Ok(trans) },
+        Err(err) => {
+            Logger::error(format!("Could not connect to server.\nReason: {}", err.to_string()).as_str());
+            Err(err)
+        },
+    }
+}
 
 fn main() {
     let parsed = Cli::parse();
@@ -34,91 +130,18 @@ fn main() {
         + "/npiper";
     let listener_path = path.clone() + "/pipe";
 
-    macro_rules! send_job {
-        ($us:ident, $job:expr, $($flags:expr)*; $($rest:tt)*) => {
-            send_job!($us, $job, std::process::id(), $($flags)*; $($rest)*);
-        };
-        ($us:ident, $job:expr, $pid:expr, $($flags:expr)*; $($rest:tt)*) => {
-             Builder::new_current_thread()
-                .enable_io()
-                .build()
-                .expect("Could not build async runtime.")
-                .block_on(async move {
-                    let Ok($us) = UnixStream::connect(&listener_path).await else {
-                        Logger::error(format!("Could not connect to server through '{}'", listener_path).as_str());
-                        Logger::info("Check if the notifs-piper daemon is enabled.");
-                        return;
-                    };
-
-                    Logger::cdebug("Sending new transmission...", None);
-                    if let Err(err) = Listener::write(
-                        &$us,
-                        &Transmission::new(
-                            TransmissionType::Incoming($pid),
-                            JobDesc::new(
-                                $job,
-                                Desc::new(
-                                    $pid,
-                                    {
-                                        #[allow(unused_mut)]
-                                        let mut fcon = Flags::NONE as FlagsRepr;
-                                        $(
-                                            fcon = Flags::join(
-                                                fcon,
-                                                $flags
-                                            );
-                                        )*
-
-                                        fcon
-                                    }
-                                )
-                            ).to_string(),
-                        )
-                    ).await {
-                        Logger::error(format!("Could not connect to server.\nReason: {}", err.to_string()).as_str());
-                        return;
-                    }
-                    Logger::cdebug("Transmission sent.", None);
-
-                    $($rest)*
-                });
-        };
-    }
-
-    macro_rules! send_job_and_read {
-        ($us:ident, $job:expr, $($flags:expr)*) => {
-            send_job!(
-                $us,
-                $job,
-                $($flags)*;
-                /*---------------------------------------------*/
-                match Listener::read(&$us).await {
-                    Ok(tr) => {
-                        println!("{}", tr.data);
-                    },
-                    Err(err) => {
-                        Logger::error(format!("Could not connect to server.\nReason: {}", err.to_string()).as_str());
-                    },
-                }
-            );
-        }
-    }
-
     Logger::cdebug("~~ Debugging session ~~", Some(parsed.debug));
 
     match parsed.subcommand {
         Sub::Signal { id, force, kind } => {
-            if let SignalKind::Closed { query } = kind
-                && query
-            {
-                send_job_and_read!(us, Box::new(Query(id)) as Box<dyn Job>,);
-                return;
-            }
+            block_on_io!(async move {
+                if let SignalKind::Closed { query } = kind && query {
+                    send_once_and_print!(listener_path, Box::new(Query(id)), /* No flags */ ;);
+                    return;
+                }
 
-            send_job!(
-                us,
-                match &kind {
-                    SignalKind::Closed { query: _ } => {
+                let job: Box<dyn Job> = match &kind {
+                    SignalKind::Closed { query: _ /* false */ } => {
                         Box::new(Close::new(id, NotificationClosed::Dismissed)) as Box<dyn Job>
                     },
                     SignalKind::ActionInvoked { action } => {
@@ -127,21 +150,10 @@ fn main() {
                     SignalKind::ActivationToken { token } => {
                         Box::new(ActivationToken::new(id, token.clone())) as Box<dyn Job>
                     },
-                },
-                0,
-                if force { Flags::FORCE } else { Flags::NONE };
-                /*********************************************/
-                if let SignalKind::Closed { query } = kind && query {
-                    match Listener::read(&us).await {
-                        Ok(tr) => {
-                            println!("{}", tr.data);
-                        },
-                        Err(err) => {
-                            Logger::error(format!("Could not connect to server.\nReason: {}", err.to_string()).as_str());
-                        },
-                    }
-                }
-            );
+                };
+
+                send!(listener_path, job, if force { Flags::FORCE } else { Flags::NONE }; 0);
+            });
         }
         Sub::Daemon {
             logs_file,
@@ -196,7 +208,7 @@ fn main() {
             Logger::error(
                 format!(
                     concat!(
-                        "Could not start server on org.freedesktop.Notifications.\n",
+                        "Could not start server on 'org.freedesktop.Notifications'.\n",
                         "Error type: {}",
                     ),
                     err.to_string(),
@@ -209,23 +221,19 @@ fn main() {
             skip,
             silent,
         } => {
-            send_job_and_read!(
-                us,
-                Box::new(Read::new(skip, skip + count)),
-                if silent { Flags::SILENT } else { Flags::NONE }
-            );
+            block_on_io!(async move {
+                send_once_and_print!(listener_path, Box::new(Read::new(skip, skip + count)), if silent { Flags::SILENT } else { Flags::NONE };);
+            });
         }
         Sub::Watch { silent } => {
-            send_job!(
-                us,
-                Box::new(Watch),
-                if silent { Flags::SILENT } else { Flags::NONE };
-                /*---------------------------------------------*/
-                while let Ok(tr) = Listener::read(&us).await {
-                    println!("{}", tr.data);
+            block_on_io!(async move {
+                let stream = send!(listener_path, Box::new(Watch), if silent { Flags::SILENT } else { Flags::NONE };);
+
+                while let Ok(trans) = Listener::read(&stream).await {
+                    println!("{}", trans.data);
                 }
                 Logger::error("Could not connect to server. Check daemon logs for more information.");
-            );
+            });
         }
     }
 }

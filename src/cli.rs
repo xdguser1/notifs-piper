@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use clap::{Parser, Subcommand};
 
 use crate::server::dbus::Nid;
+use crate::consts::CAPABILITIES_ENUMERATED;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -58,7 +59,7 @@ pub enum Sub {
         #[arg(short = 'q', long, default_value_t = false)]
         silent: bool,
     },
-    /// Pipes notifications to the output. See README on github.
+    /// Pipes notifications and events to the output.
     Watch {
         /// Notifications won't be marked as read from this.
         #[arg(short = 'q', long, default_value_t = false)]
@@ -73,7 +74,9 @@ pub enum Sub {
         /// but the user's program stores 11 notifications in memory).
         ///
         /// As such, to preserve validity, this will only execute if:
+        ///
         /// (1) the notification isn't previously closed in the logs and
+        ///
         /// (2) the notification is stored in the logs
         ///
         /// To force the signal to be emitted, use --force option, however,
@@ -107,28 +110,15 @@ pub enum SignalKind {
     ActivationToken { token: String },
 }
 
-pub const CAPABILITIES_ENUMERATED: [&'static str; 10] = [
-    "action-icons",
-    "actions",
-    "body",
-    "body-hyperlinks",
-    "body-images",
-    "body-markup",
-    "icon-multi",
-    "icon-static",
-    "persistence",
-    "sound",
-];
-
 fn opts_checker(val: &str) -> Result<String, String> {
     static MUTUALLY_EXCLUDED_ICON: AtomicBool = AtomicBool::new(false);
 
     if val.starts_with("icon") {
         if MUTUALLY_EXCLUDED_ICON.load(Ordering::Relaxed) {
-            panic!(concat!(
+            return Err(concat!(
                 "'icon-static' and 'icon-multi' are mutually exclusive.",
                 "Please refer to the docs from freedesktop.org for the Notifications interface."
-            ));
+            ).to_string());
         }
 
         MUTUALLY_EXCLUDED_ICON.store(true, Ordering::Relaxed);
