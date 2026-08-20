@@ -51,7 +51,7 @@ impl Job for Close {
         let pos = man.iter().position(|val| val.id() == self.id);
         let ne = pos.clone().and_then(|val| man.iter().nth(val));
 
-        if ne.as_ref().is_none_or(|ne| ne.is_closed()) && !Flags::FORCE.is(desc.flags) {
+        if ne.as_ref().is_none_or(|ne| ne.closed()) && !Flags::FORCE.is(desc.flags) {
             return FulfilledJob::new(Ok(None), FulfilledJobResultType::Other);
         }
 

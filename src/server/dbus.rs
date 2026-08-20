@@ -7,8 +7,10 @@ use serde::{Deserialize, Serialize};
 use zbus::{interface, object_server::SignalEmitter, zvariant::OwnedValue};
 
 use crate::consts::{NAME, NOTIFICATIONS_PROT_VER, VERSION};
-use crate::utils::logger::Logger;
-
+use crate::utils::{
+    logger::Logger,
+    macros::multithread::acquire_lock_panic,
+};
 use super::jobs::{
     Broadcast, Close, Desc, JobDesc, NotificationClosed, NotificationClosedRepr, SyncList,
 };
@@ -17,6 +19,9 @@ pub static CAPABILITIES: OnceLock<Vec<&'static str>> = OnceLock::new();
 
 pub type Nid = u32;
 
+/// Represents a notification event.
+/// The fields `time`, `read`, `closed` and `id` are managed internally.
+/// The rest should not be written, since this is not this program's job.
 #[derive(Serialize, Deserialize)]
 pub struct NotificationEvent {
     id: Nid,
@@ -55,7 +60,7 @@ impl NotificationEvent {
     }
 
     #[inline(always)]
-    pub const fn is_closed(&self) -> bool {
+    pub const fn closed(&self) -> bool {
         self.closed
     }
 
@@ -71,31 +76,19 @@ pub struct Notifications {
     sender: Sender<()>,
 }
 
+// SAFETY: Notifications is safe to send because synchronization is done
+// in the methods themselves.
 unsafe impl Send for Notifications {}
 
+// SAFETY: Notifications is safe to send because synchronization is done
+// in the methods themselves.
 unsafe impl Sync for Notifications {}
 
 impl Notifications {
     fn push_job(&self, desc: JobDesc) {
-        match self.sync_list.lock() {
-            Err(poison) => {
-                Logger::error(
-                    format!(
-                        "{}\n{}\n{}",
-                        "!!FATAL ERROR!! A thread panicked while holding the LogManager.",
-                        format!("Source: {}", Error::source(&poison).unwrap()),
-                        format!("Description: {}", poison),
-                    )
-                    .as_str(),
-                );
-                panic!();
-            }
-            Ok(mut sync_list) => {
-                Logger::cdebug("Job scheduled for execution.", None);
-                sync_list.push_back(desc);
-                self.sender.send(()).unwrap();
-            }
-        }
+        let mut lock = acquire_lock_panic!(self.sync_list.lock(), "Notifications");
+        lock.push_back(desc);
+        self.sender.send(()).unwrap();
     }
 
     pub fn new(counter: Nid, sync_list: &SyncList, sender: Sender<()>) -> Notifications {
@@ -117,7 +110,7 @@ impl Notifications {
         hints: HashMap<String, OwnedValue>,
         timeout: i32,
     ) -> Nid {
-        Logger::cdebug("Received new notification. Creating job.", None);
+        Logger::cdebug("(DBUS THREAD): Received new notification.", None);
 
         let id = if replaces_id == 0 {
             // Do not change these lines, since they guarantee Nid is not 0
@@ -152,7 +145,7 @@ impl Notifications {
     }
 
     pub fn close_notification(&self, nid: Nid) {
-        Logger::cdebug("Received closed command. Creating job.", None);
+        Logger::cdebug("(DBUS THREAD): Received closed command.", None);
         self.push_job(JobDesc::new(
             Box::new(Close::new(nid, NotificationClosed::CallCloseNotification)),
             Desc::new(0, 0),

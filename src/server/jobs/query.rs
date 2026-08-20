@@ -15,7 +15,7 @@ impl Job for Query {
         FulfilledJob::new(
             Ok(Some(format!(
                 "{}",
-                man.find(self.0).map(|val| val.is_closed()).unwrap_or(false)
+                man.find(self.0).map(|val| val.closed()).unwrap_or(false)
             ))),
             FulfilledJobResultType::Results,
         )
