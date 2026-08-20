@@ -195,7 +195,7 @@ fn main() {
                     .unwrap();
             }
 
-            let Err(err) = server::start_server(ServerConfig {
+            let Err(err) = server::start(ServerConfig {
                 listener_path,
                 logs_path,
                 logs_config: LogsConfig {

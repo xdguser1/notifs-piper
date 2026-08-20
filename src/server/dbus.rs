@@ -72,7 +72,7 @@ impl NotificationEvent {
 
 pub struct Notifications {
     counter: Nid,
-    sync_list: SyncList,
+    list: SyncList,
     sender: Sender<()>,
 }
 
@@ -86,17 +86,13 @@ unsafe impl Sync for Notifications {}
 
 impl Notifications {
     fn push_job(&self, desc: JobDesc) {
-        let mut lock = acquire_lock_panic!(self.sync_list.lock(), "Notifications");
+        let mut lock = acquire_lock_panic!(self.list.lock(), "Notifications");
         lock.push_back(desc);
         self.sender.send(()).unwrap();
     }
 
-    pub fn new(counter: Nid, sync_list: &SyncList, sender: Sender<()>) -> Notifications {
-        Notifications {
-            counter,
-            sync_list: Arc::clone(sync_list),
-            sender,
-        }
+    pub fn new(counter: Nid, list: SyncList, sender: Sender<()>) -> Notifications {
+        Notifications { counter, list, sender, }
     }
 
     pub fn notify(

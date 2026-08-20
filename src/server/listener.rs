@@ -21,7 +21,7 @@ pub struct Listener {
     // `String` is not strictly required, since a lifetime could do the job, but better
     // for future features, if any require a owned path.
     listening_path: String,
-    sync_list: SyncList,
+    list: SyncList,
     notify: Sender<()>,
 }
 
@@ -96,12 +96,12 @@ impl Listener {
         }
     }
 
-    pub fn new(listening_path: &str, sync_list: &SyncList, notify: Sender<()>) -> Listener {
+    pub fn new(listening_path: &str, list: SyncList, notify: Sender<()>) -> Listener {
         Listener {
             active_processes: Arc::new(Mutex::new(HashMap::new())),
             listening_processes: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             listening_path: listening_path.to_owned(),
-            sync_list: Arc::clone(sync_list),
+            list,
             notify,
         }
     }
@@ -123,7 +123,7 @@ impl Listener {
 
             let lp = Arc::clone(&self.listening_processes);
             let ap = Arc::clone(&self.active_processes);
-            let sl = Arc::clone(&self.sync_list);
+            let sl = Arc::clone(&self.list);
 
             let sn = self.notify.clone();
             let pn = panic.clone();

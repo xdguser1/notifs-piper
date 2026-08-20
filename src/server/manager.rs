@@ -37,7 +37,7 @@ pub struct LogsConfig {
 // There is no guarantee that logs_buffer is synchronised with
 // the logs_path file. This is not ACID compliant.
 pub struct LogsManager {
-    sync_list: SyncList,
+    list: SyncList,
     listener_path: String,
     logs_path: String,
     logs_buffer: VecDeque<NotificationEvent>,
@@ -86,7 +86,7 @@ impl LogsManager {
     }
 
     pub fn new(
-        sync_list: &SyncList,
+        list: SyncList,
         listener_path: &str,
         logs_path: &str,
         logs_config: LogsConfig,
@@ -175,7 +175,7 @@ impl LogsManager {
         };
 
         LogsManager {
-            sync_list: Arc::clone(sync_list),
+            list,
             listener_path: listener_path.to_owned(),
             logs_path: logs_path.to_owned(),
             logs_buffer: buffer,
@@ -188,7 +188,7 @@ impl LogsManager {
 
     #[inline(always)]
     pub(super) fn copy_sync_list(&self) -> SyncList {
-        Arc::clone(&self.sync_list)
+        Arc::clone(&self.list)
     }
 
     #[inline(always)]
@@ -294,7 +294,7 @@ impl LogsManager {
     }
 
     pub fn exec(&mut self) -> io::Result<ExecState> {
-        let mut vd = match self.sync_list.lock() {
+        let mut vd = match self.list.lock() {
             Ok(vd) => vd,
             Err(poison) => {
                 Logger::error(
