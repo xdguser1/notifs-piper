@@ -4,31 +4,36 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Copy, Clone)]
 pub struct LogSettings {
-    bold: bool,
-    underline: bool,
-    blinking: bool,
-    reverse: bool,
-    bg: Colors,
-    fg: Colors,
+    pub bold: bool,
+    pub underline: bool,
+    pub blinking: bool,
+    pub reverse: bool,
+    pub bg: Colors,
+    pub fg: Colors,
 }
 
 impl LogSettings {
-    fn underline(&self) -> &'static str {
+    #[inline(always)]
+    pub const fn underline(&self) -> &'static str {
         if self.underline { "\x1b[4m" } else { "" }
     }
 
-    fn bold(&self) -> &'static str {
+    #[inline(always)]
+    pub const fn bold(&self) -> &'static str {
         if self.bold { "\x1b[1m" } else { "" }
     }
 
-    fn blinking(&self) -> &'static str {
+    #[inline(always)]
+    pub const fn blinking(&self) -> &'static str {
         if self.blinking { "\x1b[5m" } else { "" }
     }
 
-    fn reverse(&self) -> &'static str {
+    #[inline(always)]
+    pub const fn reverse(&self) -> &'static str {
         if self.reverse { "\x1b[7m" } else { "" }
     }
 
+    #[inline]
     pub fn bash_settings(&self) -> String {
         self.bg.bg().to_owned()
             + self.fg.fg()
@@ -38,13 +43,13 @@ impl LogSettings {
             + self.reverse()
     }
 
-    pub fn reset() -> &'static str {
+    #[inline(always)]
+    pub const fn reset() -> &'static str {
         Colors::reset()
     }
 }
 
-// Constants. Prefer screaming snake case
-#[allow(nonstandard_style)]
+#[repr(usize)]
 #[derive(Copy, Clone, Debug)]
 pub enum Colors {
     BLACK = 0,
@@ -69,21 +74,21 @@ impl Colors {
         "\x1b[47m", "\x1b[49m",
     ];
 
-    pub fn fg(&self) -> &str {
+    pub const fn fg(&self) -> &str {
         Colors::FG_STRINGS[*self as usize]
     }
 
-    pub fn bg(&self) -> &str {
+    pub const fn bg(&self) -> &str {
         Colors::BG_STRINGS[*self as usize]
     }
 
-    pub fn reset() -> &'static str {
+    pub const fn reset() -> &'static str {
         "\x1b[0m"
     }
 }
 
 pub struct Logger {
-    settings: LogSettings,
+    pub settings: LogSettings,
 }
 
 impl Logger {
@@ -116,18 +121,19 @@ impl Logger {
         ..Logger::DEFAULT_SETTINGS
     });
 
-    pub fn new() -> Logger {
-        Logger {
-            settings: Logger::DEFAULT_SETTINGS.clone(),
-        }
+    #[inline(always)]
+    pub const fn new() -> Logger {
+        Logger::custom(&Logger::DEFAULT_SETTINGS)
     }
 
+    #[inline(always)]
     pub const fn custom(settings: &LogSettings) -> Logger {
         Logger {
             settings: *settings,
         }
     }
 
+    #[inline(always)]
     pub fn print(&self, text: &str) {
         print!(
             "{}{}{}",
@@ -137,11 +143,13 @@ impl Logger {
         );
     }
 
+    #[inline(always)]
     pub fn println(&self, text: &str) {
         self.print(text);
         println!();
     }
 
+    #[inline(always)]
     pub fn err(&self, text: &str) {
         eprint!(
             "{}{}{}",
@@ -151,23 +159,28 @@ impl Logger {
         );
     }
 
+    #[inline(always)]
     pub fn errln(&self, text: &str) {
         self.err(text);
         eprintln!();
     }
 
+    #[inline(always)]
     pub fn info(text: &str) {
         Logger::INFO_LOGGER.println(format!("[INFO]: {}", text).as_str());
     }
 
+    #[inline(always)]
     pub fn warn(text: &str) {
         Logger::WARN_LOGGER.println(format!("[WARNING]: {}", text).as_str());
     }
 
+    #[inline(always)]
     pub fn error(text: &str) {
         Logger::ERROR_LOGGER.errln(format!("[ERROR]: {}", text).as_str());
     }
 
+    #[inline(always)]
     pub fn debug(text: &str) {
         Logger::DEBUG_LOGGER.println(format!("[DEBUG]: {}", text).as_str());
     }
