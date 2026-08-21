@@ -2,11 +2,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::runtime::{Builder, LocalOptions};
 
+use crate::utils::{
+    logger::Logger,
+    macros::parse::{parse, split_once},
+};
 use super::super::dbus::{Nid, NotificationsWrapperSignals};
 use super::super::manager::LogsManager;
 use super::super::transmission::{Payload, PayloadError};
 use super::{Desc, EventType, Flags, FulfilledJob, FulfilledJobResultType, Job};
-use crate::utils::logger::Logger;
 
 pub type NotificationClosedRepr = u32;
 
@@ -28,7 +31,7 @@ impl From<NotificationClosedRepr> for NotificationClosed {
             2 => NC::Dismissed,
             3 => NC::CallCloseNotification,
             4 => NC::Undefined,
-            _ => unreachable!("Not implemented in specs."),
+            _ => unreachable!("Not implemented in the specs."),
         }
     }
 }
@@ -51,7 +54,11 @@ impl Job for Close {
         let pos = man.iter().position(|val| val.id() == self.id);
         let ne = pos.clone().and_then(|val| man.iter().nth(val));
 
+        // If it is closed or does not exist whilst the --force option is down: silently fail.
         if ne.as_ref().is_none_or(|ne| ne.closed()) && !Flags::FORCE.is(desc.flags) {
+            // FulfilledJobResultType::Other and not FulfilledJobResultType::Results since it
+            // technically fails, even though it does not matter since it is never communicated
+            // with the client through Listener.
             return FulfilledJob::new(Ok(None), FulfilledJobResultType::Other);
         }
 
@@ -83,7 +90,9 @@ impl Job for Close {
 
         Logger::cdebug("(MANAGER THREAD): Closing notification.", None);
 
-        let ne = man.iter_mut().nth(pos.unwrap()).unwrap();
+        // SAFETY: man.set_dirty() called just after. This is fine and required because of
+        // the borrow safety between ne and man.
+        let ne = unsafe { man.iter_mut().nth(pos.unwrap()).unwrap() };
 
         ne.set_closed();
         man.set_dirty();
@@ -125,30 +134,11 @@ impl Job for Close {
 
 impl Payload for Close {
     fn from_str_static(data: &str) -> Result<Close, PayloadError> {
-        let (id, reason) = data.split_once('#').ok_or(PayloadError::new(
-            data.to_owned(),
-            "'#' was not found in split.".to_owned(),
-            String::new(),
-        ))?;
+        let (id, reason) = split_once!(data, '#')?;
 
         Ok(Close::new(
-            id.parse::<Nid>().map_err(|err| {
-                PayloadError::new(
-                    id.to_owned(),
-                    "Could not parse 'id' for 'Close' job.".to_owned(),
-                    err.to_string(),
-                )
-            })?,
-            reason
-                .parse::<NotificationClosedRepr>()
-                .map_err(|err| {
-                    PayloadError::new(
-                        reason.to_owned(),
-                        "Could not parse 'reason' in 'Close' job.".to_owned(),
-                        err.to_string(),
-                    )
-                })?
-                .into(),
+            parse!(id, Nid, "Close")?,
+            parse!(reason, NotificationClosedRepr, "Close")?.into(),
         ))
     }
 

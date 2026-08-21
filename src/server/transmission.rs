@@ -22,8 +22,8 @@ impl Payload for TransmissionType {
             return Ok(TransmissionType::Error);
         }
 
-        let (first, second) = split_once!(data, '#');
-        let second = parse!(second, Pid, "TransmissionType");
+        let (first, second) = split_once!(data, '#')?;
+        let second = parse!(second, Pid, "TransmissionType")?;
 
         match first {
             "inc" => Ok(TransmissionType::Incoming(second)),
@@ -65,7 +65,7 @@ impl Transmission {
 
 impl Payload for Transmission {
     fn from_str_static(data: &str) -> Result<Self, PayloadError> {
-        let (first, second) = split_once!(data, "##");
+        let (first, second) = split_once!(data, "##")?;
 
         Ok(Transmission {
             typ: TransmissionType::from_str_static(first)?,

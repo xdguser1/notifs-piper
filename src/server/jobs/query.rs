@@ -1,7 +1,10 @@
+use crate::utils::{
+    logger::Logger,
+    macros::parse::parse,
+};
 use super::super::dbus::Nid;
 use super::super::transmission::{Payload, PayloadError};
 use super::{Desc, FulfilledJob, FulfilledJobResultType, Job, LogsManager};
-use crate::utils::logger::Logger;
 
 pub struct Query(pub Nid);
 
@@ -28,13 +31,7 @@ impl Job for Query {
 
 impl Payload for Query {
     fn from_str_static(data: &str) -> Result<Query, PayloadError> {
-        Ok(Query(data.parse::<Nid>().map_err(|err| {
-            PayloadError::new(
-                data.to_owned(),
-                "Could not parse 'Nid' for 'Query'.".to_owned(),
-                err.to_string(),
-            )
-        })?))
+        Ok(Query(parse!(data, Nid, "Query")?))
     }
 
     fn to_string(&self) -> String {

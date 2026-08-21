@@ -1,3 +1,4 @@
+use crate::utils::macros::parse::{parse, split_once};
 use super::super::manager::{LogCountType, LogsManager};
 use super::super::transmission::{Payload, PayloadError};
 use super::{Desc, Flags, FulfilledJob, FulfilledJobResultType, Job};
@@ -35,28 +36,9 @@ impl Job for Read {
 
 impl Payload for Read {
     fn from_str_static(data: &str) -> Result<Read, PayloadError> {
-        let (start, end) = data.split_once('#').ok_or(PayloadError::new(
-            data.to_owned(),
-            "'#' not found in arguments for 'Read'".to_owned(),
-            String::new(),
-        ))?;
+        let (start, end) = split_once!(data, '#')?;
 
-        Ok(Read::new(
-            start.parse::<LogCountType>().map_err(|err| {
-                PayloadError::new(
-                    start.to_owned(),
-                    "Error while parsing 'LogCountType' in 'Read'".to_owned(),
-                    err.to_string(),
-                )
-            })?,
-            end.parse::<LogCountType>().map_err(|err| {
-                PayloadError::new(
-                    end.to_owned(),
-                    "Error while parsing 'LogCountType' in 'Read'".to_owned(),
-                    err.to_string(),
-                )
-            })?,
-        ))
+        Ok(Read::new(parse!(start, LogCountType, "Read")?, parse!(end, LogCountType, "Read")?))
     }
 
     fn to_string(&self) -> String {

@@ -24,7 +24,7 @@ use server::{
 };
 use utils::{
     logger::Logger,
-    macros::{async_rt::block_on_io, utilities::expand_option},
+    macros::{async_rt::block_on_io, utilities::{expand_option, try_block}},
 };
 
 mod cli;
@@ -33,9 +33,9 @@ mod server;
 mod utils;
 
 macro_rules! send {
-    ($path:ident, $job:expr, $($flags:expr),*; $($pid:literal)?) => {
-        {
-            let Ok(stream) = connect($path).await else { return; };
+    ($path:ident, $job:expr, $($flags:expr),*; $($pid:literal)?) => {(
+        'inside: {
+            let stream = try_block!(connect($path).await, 'inside);
 
             #[allow(unused_mut)]
             let mut flags: FlagsRepr = Flags::NONE as FlagsRepr;
@@ -43,32 +43,31 @@ macro_rules! send {
                 flags = Flags::join(flags, $flags);
             )*
 
-            let Ok(_) = send(&stream, $job, flags, expand_option!($($pid)?)).await else { return; };
+            try_block!(send(&stream, $job, flags, expand_option!($($pid)?)).await, 'inside);
 
-            stream
-        }
-    };
+            Ok(stream)
+        } as io::Result<UnixStream>
+    )};
 }
 
 macro_rules! send_once {
-    ($path:ident, $job:expr, $($flags:expr),*; $($pid:literal)?) => {
-        {
-            let stream = send!($path, $job, $($flags)*; $($pid)?);
+    ($path:ident, $job:expr, $($flags:expr),*; $($pid:literal)?) => {(
+        'inside: {
+            let stream = try_block!(send!($path, $job, $($flags)*; $($pid)?), 'inside);
 
-            let Ok(trans) = read(&stream).await else { return; };
-
-            trans
-        }
-    };
+            read(&stream).await
+        } as io::Result<Transmission>
+    )};
 }
 
 macro_rules! send_once_and_print {
-    ($path:ident, $job:expr, $($flags:expr),*; $($pid:literal)?) => {
-        {
-            let trans = send_once!($path, $job, $($flags)*; $($pid)?);
+    ($path:ident, $job:expr, $($flags:expr),*; $($pid:literal)?) => {(
+        'inside: {
+            let trans = try_block!(send_once!($path, $job, $($flags)*; $($pid)?), 'inside);
             println!("{}", trans.to_string());
-        }
-    };
+            Ok(())
+        } as io::Result<()>
+    )};
 }
 
 async fn connect<P>(path: P) -> io::Result<UnixStream>
@@ -127,7 +126,7 @@ async fn read(stream: &UnixStream) -> io::Result<Transmission> {
     }
 }
 
-fn main() {
+fn main() -> io::Result<()> {
     let parsed = Cli::parse();
     let path = env::var("XDG_RUNTIME_DIR")
         .or(env::var("XDG_DATA_HOME"))
@@ -144,8 +143,8 @@ fn main() {
                 if let SignalKind::Closed { query } = kind
                     && query
                 {
-                    send_once_and_print!(listener_path, Box::new(Query(id)), /* No flags */ ;);
-                    return;
+                    send_once_and_print!(listener_path, Box::new(Query(id)), /* No flags */ ;)?;
+                    return Ok::<(), io::Error>(());
                 }
 
                 let job: Box<dyn Job> = match &kind {
@@ -160,8 +159,9 @@ fn main() {
                     }
                 };
 
-                send!(listener_path, job, if force { Flags::FORCE } else { Flags::NONE }; 0);
-            });
+                send!(listener_path, job, if force { Flags::FORCE } else { Flags::NONE }; 0)?;
+                Ok(())
+            })?;
         }
         Sub::Daemon {
             logs_file,
@@ -182,7 +182,7 @@ fn main() {
             if let Some(pb) = logs_file.as_ref().map(|val| val.as_path()) {
                 if !pb.is_file() {
                     Logger::error("'logs-file' is not a valid file.");
-                    return;
+                    return Err(io::Error::new(io::ErrorKind::NotFound, "'logs-file' is not a valid file."));
                 }
 
                 logs_path = pb.to_str().unwrap().to_owned();
@@ -223,6 +223,7 @@ fn main() {
                 )
                 .as_str(),
             );
+            return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "Coould not start dbus server."));
         }
         Sub::Read {
             count,
@@ -230,12 +231,12 @@ fn main() {
             silent,
         } => {
             block_on_io!(async move {
-                send_once_and_print!(listener_path, Box::new(Read::new(skip, skip + count)), if silent { Flags::SILENT } else { Flags::NONE };);
-            });
+                send_once_and_print!(listener_path, Box::new(Read::new(skip, skip + count)), if silent { Flags::SILENT } else { Flags::NONE };)
+            })?;
         }
         Sub::Watch { silent } => {
             block_on_io!(async move {
-                let stream = send!(listener_path, Box::new(Watch), if silent { Flags::SILENT } else { Flags::NONE };);
+                let stream = send!(listener_path, Box::new(Watch), if silent { Flags::SILENT } else { Flags::NONE };)?;
 
                 while let Ok(trans) = Listener::read(&stream).await {
                     println!("{}", trans.data);
@@ -243,7 +244,10 @@ fn main() {
                 Logger::error(
                     "Could not connect to server. Check daemon logs for more information.",
                 );
-            });
+                Err(io::Error::new(io::ErrorKind::Interrupted, "The connection to the server was interrupted."))
+            })?;
         }
     }
+
+    Ok(())
 }

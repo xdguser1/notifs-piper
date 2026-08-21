@@ -57,12 +57,15 @@ impl Job for Broadcast {
                     Desc::new(0, 0),
                 ));
 
-                snd.iter().for_each(|val| {
+                snd.map(|val| {
+                    // Ignores the error for the same reason as above.
                     let _ = val.send(());
                 });
             });
         }
 
+        // No race conditions with the previous thread since manager executes
+        // one job at a time. So a notification cannot be closed before it is added.
         man.append_notification(self.event);
 
         FulfilledJob::new(Ok(Some(broadcast)), FulfilledJobResultType::Results)

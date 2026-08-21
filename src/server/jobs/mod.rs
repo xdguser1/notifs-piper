@@ -1,10 +1,7 @@
-// LOW PRIORITY TODOS
-// TODO(refactor): Refactor jobs with macros
-// TODO(refactor): Add derive macro for Payload
-
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
+use crate::utils::macros::parse::{parse, split_once};
 use super::dbus::Nid;
 use super::manager::LogsManager;
 use super::transmission::{Payload, PayloadError};
@@ -30,6 +27,12 @@ pub type Pid = u32;
 pub type JobList = VecDeque<JobDesc>;
 pub type SyncList = Arc<Mutex<JobList>>;
 
+macro_rules! from_static_cast {
+    ($struct_name:ident, $data_str:expr) => {
+        Box::new($struct_name::from_str_static($data_str)?) as Box<dyn Job>
+    };
+}
+
 pub trait Job: Payload + Send {
     fn execute(self: Box<Self>, desc: &Desc, manager: &mut LogsManager) -> FulfilledJob;
     // Forces every job to have a canonical name and respect the format `desc##name##args`
@@ -38,26 +41,16 @@ pub trait Job: Payload + Send {
 }
 
 fn from_str_static_dyn_payload(data: &str) -> Result<Box<dyn Job>, PayloadError> {
-    let (typ, data) = data.split_once("##").ok_or(PayloadError::new(
-        data.to_owned(),
-        "'##' was not found in split.".to_owned(),
-        String::new(),
-    ))?;
-
-    macro_rules! branch {
-        ($idn:ident) => {
-            Box::new($idn::from_str_static(data)?) as Box<dyn Job>
-        };
-    }
+    let (typ, data) = split_once!(data, "##")?;
 
     Ok(match typ {
-        "broadcast" => branch!(Broadcast),
-        "close" => branch!(Close),
-        "read" => branch!(Read),
-        "watch" => branch!(Watch),
-        "action" => branch!(ActionInvoked),
-        "activation" => branch!(ActivationToken),
-        "query" => branch!(Query),
+        "broadcast" => from_static_cast!(Broadcast, data),
+        "close" => from_static_cast!(Close, data),
+        "read" => from_static_cast!(Read, data),
+        "watch" => from_static_cast!(Watch, data),
+        "action" => from_static_cast!(ActionInvoked, data),
+        "activation" => from_static_cast!(ActivationToken, data),
+        "query" => from_static_cast!(Query, data),
         _ => {
             unreachable!("Someone forgot to put their canonical name here.");
         }
@@ -72,57 +65,21 @@ pub enum EventType {
 
 impl Payload for EventType {
     fn from_str_static(data: &str) -> Result<EventType, PayloadError> {
-        let (typ, rest) = data.split_once('#').ok_or(PayloadError::new(
-            data.to_owned(),
-            "'#' was not found in split.".to_owned(),
-            String::new(),
-        ))?;
+        let (typ, rest) = split_once!(data, '#')?;
 
         match typ {
-            "cls" => Ok(EventType::Close(rest.parse::<Nid>().map_err(|err| {
-                PayloadError::new(
-                    typ.to_owned(),
-                    "Could not parse 'nid' for 'EventType' type 'Close'.".to_owned(),
-                    err.to_string(),
-                )
-            })?)),
+            "cls" => Ok(EventType::Close(parse!(rest, Nid, "EventType")?)),
             "act" => {
-                let (nid, act) = rest.split_once('#').ok_or(PayloadError::new(
-                    rest.to_owned(),
-                    "'#' was not found in split.".to_owned(),
-                    String::new(),
-                ))?;
-                Ok(EventType::ActionInvoked(
-                    nid.parse::<Nid>().map_err(|err| {
-                        PayloadError::new(
-                            nid.to_owned(),
-                            "Cannot parse 'nid' for 'EventType'.".to_owned(),
-                            err.to_string(),
-                        )
-                    })?,
-                    act.to_owned(),
-                ))
+                let (nid, act) = split_once!(rest, '#')?;
+                Ok(EventType::ActionInvoked(parse!(nid, Nid, "EventType")?, act.to_owned()))
             }
             "acv" => {
-                let (nid, acv) = rest.split_once('#').ok_or(PayloadError::new(
-                    rest.to_owned(),
-                    "'#' was not found in split.".to_owned(),
-                    String::new(),
-                ))?;
-                Ok(EventType::ActivationToken(
-                    nid.parse::<Nid>().map_err(|err| {
-                        PayloadError::new(
-                            nid.to_owned(),
-                            "Cannot parse 'nid' for 'EventType'.".to_owned(),
-                            err.to_string(),
-                        )
-                    })?,
-                    acv.to_owned(),
-                ))
+                let (nid, acv) = split_once!(rest, '#')?;
+                Ok(EventType::ActivationToken(parse!(nid, Nid, "EventType")?, acv.to_owned()))
             }
             _ => Err(PayloadError::new(
                 typ.to_owned(),
-                "Bad type for 'EventType'".to_owned(),
+                "Bad type for 'EventType'.".to_owned(),
                 String::new(),
             )),
         }
@@ -165,11 +122,7 @@ impl Payload for FulfilledJob {
             return Ok(FulfilledJob::new(Ok(None), FulfilledJobResultType::Other));
         }
 
-        let (typ, data) = data.split_once('#').ok_or(PayloadError::new(
-            data.to_owned(),
-            "'#' was not found in split.".to_owned(),
-            String::new(),
-        ))?;
+        let (typ, data) = split_once!(data, '#')?;
 
         match typ {
             "err" => Ok(FulfilledJob::new(
@@ -190,7 +143,7 @@ impl Payload for FulfilledJob {
             )),
             _ => Err(PayloadError::new(
                 typ.to_owned(),
-                "Invalid type for 'FulfilledJob'".to_owned(),
+                "Invalid type for 'FulfilledJob'.".to_owned(),
                 String::new(),
             )),
         }
@@ -245,27 +198,9 @@ impl Desc {
 
 impl Payload for Desc {
     fn from_str_static(data: &str) -> Result<Desc, PayloadError> {
-        let (first, second) = data.split_once('#').ok_or(PayloadError::new(
-            data.to_owned(),
-            "'#' was not found in split.".to_owned(),
-            String::new(),
-        ))?;
-        Ok(Desc::new(
-            first.parse::<Pid>().map_err(|err| {
-                PayloadError::new(
-                    data.to_owned(),
-                    "Could not parse pid.".to_owned(),
-                    err.to_string(),
-                )
-            })?,
-            second.parse::<FlagsRepr>().map_err(|err| {
-                PayloadError::new(
-                    data.to_owned(),
-                    "Could not parse flags.".to_owned(),
-                    err.to_string(),
-                )
-            })?,
-        ))
+        let (first, second) = split_once!(data, '#')?;
+
+        Ok(Desc::new(parse!(first, Pid, "Desc")?, parse!(second, FlagsRepr, "Desc")?))
     }
 
     fn to_string(&self) -> String {
@@ -280,11 +215,7 @@ pub struct JobDesc {
 
 impl Payload for JobDesc {
     fn from_str_static(data: &str) -> Result<JobDesc, PayloadError> {
-        let (desc, job) = data.split_once("##").ok_or(PayloadError::new(
-            data.to_owned(),
-            "'##' was not found in split.".to_owned(),
-            String::new(),
-        ))?;
+        let (desc, job) = split_once!(data, "##")?;
 
         Ok(JobDesc::new(
             from_str_static_dyn_payload(job)?,

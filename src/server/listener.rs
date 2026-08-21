@@ -217,6 +217,10 @@ impl Listener {
 
                             if read
                                 && let Ok(not) = FulfilledJob::from_str_static(&trans.data)
+                                // The only broadcasting done are for notifications and for signals,
+                                // so if not.typ == FulfilledJob::Results, we know the type of the
+                                // result is NotificationEvent. Thus, the serde_json::from_str will
+                                // not fail.
                                 && let FulfilledJobResultType::Results = not.typ
                             {
                                 Logger::cdebug("(LISTENING THREAD): Modifying 'read' state of new notification to 'true'.", None);

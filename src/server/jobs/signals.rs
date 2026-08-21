@@ -1,9 +1,12 @@
 use tokio::runtime::{Builder, LocalOptions};
 
+use crate::utils::{
+    logger::Logger,
+    macros::parse::{parse, split_once},
+};
 use super::super::dbus::{Nid, NotificationsWrapperSignals};
 use super::super::transmission::{Payload, PayloadError};
 use super::{Desc, EventType, Flags, FulfilledJob, FulfilledJobResultType, Job, LogsManager};
-use crate::utils::logger::Logger;
 
 macro_rules! derive_signal {
     ($name:ident, $canonical:literal, $data_name:ident, $signal:ident) => {
@@ -20,8 +23,7 @@ macro_rules! derive_signal {
 
         impl Job for $name {
             fn execute(self: Box<Self>, desc: &Desc, man: &mut LogsManager) -> FulfilledJob {
-                if man.find(self.id).is_none_or(|ne| ne.is_closed()) && !Flags::FORCE.is(desc.flags)
-                {
+                if man.find(self.id).is_none_or(|ne| ne.closed()) && !Flags::FORCE.is(desc.flags) {
                     return FulfilledJob::new(Ok(None), FulfilledJobResultType::Other);
                 }
 
@@ -64,22 +66,9 @@ macro_rules! derive_signal {
 
         impl Payload for $name {
             fn from_str_static(data: &str) -> Result<$name, PayloadError> {
-                let (id, $data_name) = data.split_once('#').ok_or(PayloadError::new(
-                    data.to_owned(),
-                    "'#' was not found in split.".to_owned(),
-                    String::new(),
-                ))?;
+                let (id, $data_name) = split_once!(data, '#')?;
 
-                Ok($name::new(
-                    id.parse::<Nid>().map_err(|err| {
-                        PayloadError::new(
-                            id.to_owned(),
-                            "Cannot parse 'id' for signal".to_owned(),
-                            err.to_string(),
-                        )
-                    })?,
-                    $data_name.to_owned(),
-                ))
+                Ok($name::new(parse!(id, Nid, "Signal")?, $data_name.to_owned()))
             }
 
             fn to_string(&self) -> String {

@@ -3,36 +3,23 @@ macro_rules! export_crate {
         pub(crate) use $name;
     };
 }
-export_crate![export_crate];
 
 pub mod async_rt {
-    use super::export_crate;
-
     macro_rules! block_on_io {
         ($async:expr) => {
-            tokio::runtime::Builder::new_current_thread()
-                .enable_io()
-                .build()
-                .expect("Could not build async runtime with io.")
-                .block_on($async);
+            {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_io()
+                    .build()
+                    .expect("Could not build async runtime with io.")
+                    .block_on($async)
+            }
         };
     }
     export_crate![block_on_io];
-
-    macro_rules! block_on {
-        ($async:expr) => {
-            tokio::runtime::Builder::new_current_thread()
-                .build()
-                .expect("Could not build runtime.")
-                .block_on($async);
-        };
-    }
-    export_crate![block_on];
 }
 
 pub mod multithread {
-    use super::export_crate;
-
     macro_rules! acquire_lock_panic {
         ($lock_expr:expr, $source:literal, $($rest:stmt)*) => {
             {
@@ -65,8 +52,6 @@ pub mod multithread {
 }
 
 pub mod parse {
-    use super::export_crate;
-
     macro_rules! split_once {
         ($data:ident, $delimiter:literal) => {{
             $data.split_once($delimiter).ok_or_else(|| {
@@ -80,7 +65,7 @@ pub mod parse {
                     .to_owned(),
                     String::new(),
                 )
-            })?
+            })
         }};
         ($data:ident, $delimiter:pat_param) => {{
             $data.split_once($delimiter).ok_or_else(|| {
@@ -94,7 +79,7 @@ pub mod parse {
                     .to_owned(),
                     String::new(),
                 )
-            })?
+            })
         }};
     }
     export_crate![split_once];
@@ -114,15 +99,13 @@ pub mod parse {
                     .to_owned(),
                     err.to_string(),
                 )
-            })?
+            })
         }};
     }
     export_crate![parse];
 }
 
 pub mod utilities {
-    use super::export_crate;
-
     macro_rules! expand_option {
         () => {
             None
@@ -132,4 +115,14 @@ pub mod utilities {
         };
     }
     export_crate![expand_option];
+
+    macro_rules! try_block {
+        ($pat:expr, $out:lifetime) => {(
+            match $pat {
+                Ok(val) => { val },
+                Err(err) => { break $out Err(err.into()); },
+            }
+        )};
+    }
+    export_crate![try_block];
 }

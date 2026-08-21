@@ -7,11 +7,17 @@ use std::sync::{Arc, mpsc::Sender};
 use tokio::net::UnixStream;
 use zbus::Connection;
 
-use crate::utils::logger::Logger;
-
+use crate::utils::{
+    logger::Logger,
+    macros::{
+        multithread::acquire_lock_panic,
+        async_rt::block_on_io,
+    },
+};
 use super::dbus::{Nid, NotificationEvent};
-use super::jobs::{FulfilledJob, Pid, SyncList};
-use super::transmission::{Payload, Transmission};
+use super::listener::Listener;
+use super::jobs::SyncList;
+use super::transmission::Transmission;
 
 pub type LogCountType = u16;
 
@@ -57,34 +63,6 @@ impl LogsManager {
         .map_err(|err| LogsDBErrorType::ParseError(err))
     }
 
-    async fn send(&self, ful: &FulfilledJob, pid: Pid) -> io::Result<()> {
-        let us = UnixStream::connect(&self.listener_path).await?;
-        let stg = Payload::to_string(&Transmission::from_fulfilled(ful, pid));
-        let mut trb = stg.as_bytes();
-
-        loop {
-            us.writable().await?;
-
-            match us.try_write(trb) {
-                Ok(n) => {
-                    if n == 0 && trb.is_empty() {
-                        break;
-                    }
-
-                    trb = &trb[n..];
-                }
-                Err(err) if err.kind() == ErrorKind::WouldBlock => {
-                    continue;
-                }
-                Err(err) => {
-                    return Err(err);
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     pub fn new(
         list: SyncList,
         listener_path: &str,
@@ -99,7 +77,7 @@ impl LogsManager {
                         format!(
                             concat!(
                                 "Previous database in '{}' could not be found.\n",
-                                "This will create a new file once a notification is send.",
+                                "This will create a new file once a notification has been sent.",
                             ),
                             logs_path,
                         )
@@ -196,10 +174,14 @@ impl LogsManager {
         self.logs_buffer.iter()
     }
 
-    // This does *NOT* set self as dirty as it is possible that nothing gets returned.
-    // If something gets changed, the implementor should call `self.set_dirty()`
+    // SAFETY: This is marked as `unsafe` since it returns a mutable reference to a given
+    // notification, but makes no guarantees as for whether `self.dirty` is actually called.
+    //
+    // Anyone that uses this function must ensure that proper safeguards are implemented to
+    // disallow operations such as marking a notification as 'not closed' even if it was before
+    // (in this example, modifying this state may cause undefined behaviour in other programs).
     #[inline(always)]
-    pub(super) fn iter_mut<'a>(&'a mut self) -> impl Iterator<Item = &'a mut NotificationEvent> {
+    pub(super) unsafe fn iter_mut<'a>(&'a mut self) -> impl Iterator<Item = &'a mut NotificationEvent> {
         self.logs_buffer.iter_mut()
     }
 
@@ -208,14 +190,25 @@ impl LogsManager {
         self.iter().find(|ne| ne.id() == nid)
     }
 
-    // This does *NOT* set self as dirty as it is possible that nothing gets returned.
-    // If something gets changed, the implementor should call `self.set_dirty()`
+    // SAFETY: This is marked as `unsafe` since it returns a mutable reference to a given
+    // notification, but makes no guarantees as for whether `self.dirty` is actually called.
+    //
+    // Anyone that uses this function must ensure that proper safeguards are implemented to
+    // disallow operations such as marking a notification as 'not closed' even if it was before
+    // (in this example, modifying this state may cause undefined behaviour in other programs).
     #[inline]
     #[allow(unused)]
-    pub(super) fn find_mut<'a>(&'a mut self, nid: Nid) -> Option<&'a mut NotificationEvent> {
-        self.iter_mut().find(|ne| ne.id() == nid)
+    pub(super) unsafe fn find_mut<'a>(&'a mut self, nid: Nid) -> Option<&'a mut NotificationEvent> {
+        unsafe {
+            self.iter_mut().find(|ne| ne.id() == nid)
+        }
     }
 
+    /// Function that writes this `LogsManager` as 'dirty'.
+    /// This means that, when the `SyncList` becomes empty, this `LogsManager`
+    /// will write to the `logs_path` the `logs_buffer`. It doesn't make it
+    /// ACID compliant, but if the logs are written, the next time this daemon
+    /// is called, it will be up to date with all previous notification changes.
     #[inline(always)]
     pub(super) fn set_dirty(&mut self) {
         self.dirty = true;
@@ -234,14 +227,13 @@ impl LogsManager {
         if self.logs_buffer.len() == self.logs_config.max_logs as usize {
             self.logs_buffer.pop_back();
         }
-
-        self.logs_buffer.push_front(notif);
         self.set_dirty();
+        self.logs_buffer.push_front(notif);
     }
 
     pub(super) fn read_notification(&mut self, not: Nid) {
         // PERF: Since the notifications are appended in the front and most notifications are
-        // marked as "read" the moment they are sent, this will usually run with only 1 iteration.
+        // marked as 'read' the moment they are sent, this will usually run with only 1 iteration.
         // Note though, that logs_buffer has no guarantee to be ordered, so the worst case scenario
         // is still O(n).
         self.logs_buffer
@@ -294,20 +286,7 @@ impl LogsManager {
     }
 
     pub fn exec(&mut self) -> io::Result<ExecState> {
-        let mut vd = match self.list.lock() {
-            Ok(vd) => vd,
-            Err(poison) => {
-                Logger::error(
-                    format!(
-                        "{}\nError type: {}",
-                        "!!FATAL ERROR!! A thread panicked while holding the lock. Exiting.",
-                        poison.to_string(),
-                    )
-                    .as_str(),
-                );
-                panic!();
-            }
-        };
+        let mut vd = acquire_lock_panic!(self.list.lock(), "LogsManager",);
 
         let Some(jd) = vd.pop_front() else {
             Logger::cdebug("(MANAGER THREAD): No job executed.", None);
@@ -337,10 +316,13 @@ impl LogsManager {
         }
 
         Logger::cdebug("(MANAGER THREAD): Sending back results.", None);
-        tokio::runtime::Builder::new_current_thread()
-            .enable_io()
-            .build()?
-            .block_on(self.send(&fj, jd.desc.pid))?;
+        block_on_io!(async {
+            let stream = UnixStream::connect(&self.listener_path).await?;
+            Listener::write(
+                &stream,
+                &Transmission::from_fulfilled(&fj, jd.desc.pid)
+            ).await
+        })?;
 
         Ok(if fj.result.is_err() {
             Logger::cdebug("(MANAGER THREAD): Error in last job execution.", None);
