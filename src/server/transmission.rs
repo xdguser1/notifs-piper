@@ -78,6 +78,7 @@ impl Payload for Transmission {
     }
 }
 
+#[allow(unused)]
 pub struct PayloadError {
     pub data: String,
     pub error: String,

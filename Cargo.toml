@@ -15,10 +15,6 @@ syn = "3.0.3"
 tokio = { version = "1.53", features = ["net", "rt", "rt-multi-thread"] }
 zbus = { version = "5.18", features = ["tokio"] }
 
-[build]
-jobs = 2
-warnings = "deny"
-
 [profile.dev]
 opt-level = 0
 overflow-checks = true

@@ -24,7 +24,10 @@ use server::{
 };
 use utils::{
     logger::Logger,
-    macros::{async_rt::block_on_io, utilities::{expand_option, try_block}},
+    macros::{
+        async_rt::block_on_io,
+        utilities::{expand_option, try_block},
+    },
 };
 
 mod cli;
@@ -182,7 +185,10 @@ fn main() -> io::Result<()> {
             if let Some(pb) = logs_file.as_ref().map(|val| val.as_path()) {
                 if !pb.is_file() {
                     Logger::error("'logs-file' is not a valid file.");
-                    return Err(io::Error::new(io::ErrorKind::NotFound, "'logs-file' is not a valid file."));
+                    return Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "'logs-file' is not a valid file.",
+                    ));
                 }
 
                 logs_path = pb.to_str().unwrap().to_owned();
@@ -223,7 +229,10 @@ fn main() -> io::Result<()> {
                 )
                 .as_str(),
             );
-            return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "Coould not start dbus server."));
+            return Err(io::Error::new(
+                io::ErrorKind::ConnectionAborted,
+                "Coould not start dbus server.",
+            ));
         }
         Sub::Read {
             count,
@@ -244,7 +253,10 @@ fn main() -> io::Result<()> {
                 Logger::error(
                     "Could not connect to server. Check daemon logs for more information.",
                 );
-                Err(io::Error::new(io::ErrorKind::Interrupted, "The connection to the server was interrupted."))
+                Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "The connection to the server was interrupted.",
+                ))
             })?;
         }
     }

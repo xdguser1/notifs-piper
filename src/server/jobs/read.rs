@@ -1,7 +1,7 @@
-use crate::utils::macros::parse::{parse, split_once};
 use super::super::manager::{LogCountType, LogsManager};
 use super::super::transmission::{Payload, PayloadError};
 use super::{Desc, Flags, FulfilledJob, FulfilledJobResultType, Job};
+use crate::utils::macros::parse::{parse, split_once};
 
 pub struct Read {
     start: LogCountType,
@@ -38,7 +38,10 @@ impl Payload for Read {
     fn from_str_static(data: &str) -> Result<Read, PayloadError> {
         let (start, end) = split_once!(data, '#')?;
 
-        Ok(Read::new(parse!(start, LogCountType, "Read")?, parse!(end, LogCountType, "Read")?))
+        Ok(Read::new(
+            parse!(start, LogCountType, "Read")?,
+            parse!(end, LogCountType, "Read")?,
+        ))
     }
 
     fn to_string(&self) -> String {

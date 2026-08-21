@@ -1,10 +1,7 @@
-use crate::utils::{
-    logger::Logger,
-    macros::parse::parse,
-};
 use super::super::dbus::Nid;
 use super::super::transmission::{Payload, PayloadError};
 use super::{Desc, FulfilledJob, FulfilledJobResultType, Job, LogsManager};
+use crate::utils::{logger::Logger, macros::parse::parse};
 
 pub struct Query(pub Nid);
 

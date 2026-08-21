@@ -7,17 +7,14 @@ use std::sync::{Arc, mpsc::Sender};
 use tokio::net::UnixStream;
 use zbus::Connection;
 
+use super::dbus::{Nid, NotificationEvent};
+use super::jobs::SyncList;
+use super::listener::Listener;
+use super::transmission::Transmission;
 use crate::utils::{
     logger::Logger,
-    macros::{
-        multithread::acquire_lock_panic,
-        async_rt::block_on_io,
-    },
+    macros::{async_rt::block_on_io, multithread::acquire_lock_panic},
 };
-use super::dbus::{Nid, NotificationEvent};
-use super::listener::Listener;
-use super::jobs::SyncList;
-use super::transmission::Transmission;
 
 pub type LogCountType = u16;
 
@@ -181,7 +178,9 @@ impl LogsManager {
     // disallow operations such as marking a notification as 'not closed' even if it was before
     // (in this example, modifying this state may cause undefined behaviour in other programs).
     #[inline(always)]
-    pub(super) unsafe fn iter_mut<'a>(&'a mut self) -> impl Iterator<Item = &'a mut NotificationEvent> {
+    pub(super) unsafe fn iter_mut<'a>(
+        &'a mut self,
+    ) -> impl Iterator<Item = &'a mut NotificationEvent> {
         self.logs_buffer.iter_mut()
     }
 
@@ -199,9 +198,7 @@ impl LogsManager {
     #[inline]
     #[allow(unused)]
     pub(super) unsafe fn find_mut<'a>(&'a mut self, nid: Nid) -> Option<&'a mut NotificationEvent> {
-        unsafe {
-            self.iter_mut().find(|ne| ne.id() == nid)
-        }
+        unsafe { self.iter_mut().find(|ne| ne.id() == nid) }
     }
 
     /// Function that writes this `LogsManager` as 'dirty'.
@@ -318,10 +315,7 @@ impl LogsManager {
         Logger::cdebug("(MANAGER THREAD): Sending back results.", None);
         block_on_io!(async {
             let stream = UnixStream::connect(&self.listener_path).await?;
-            Listener::write(
-                &stream,
-                &Transmission::from_fulfilled(&fj, jd.desc.pid)
-            ).await
+            Listener::write(&stream, &Transmission::from_fulfilled(&fj, jd.desc.pid)).await
         })?;
 
         Ok(if fj.result.is_err() {

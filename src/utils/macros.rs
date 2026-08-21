@@ -6,15 +6,13 @@ macro_rules! export_crate {
 
 pub mod async_rt {
     macro_rules! block_on_io {
-        ($async:expr) => {
-            {
-                tokio::runtime::Builder::new_current_thread()
-                    .enable_io()
-                    .build()
-                    .expect("Could not build async runtime with io.")
-                    .block_on($async)
-            }
-        };
+        ($async:expr) => {{
+            tokio::runtime::Builder::new_current_thread()
+                .enable_io()
+                .build()
+                .expect("Could not build async runtime with io.")
+                .block_on($async)
+        }};
     }
     export_crate![block_on_io];
 }

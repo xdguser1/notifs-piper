@@ -1,12 +1,12 @@
 use tokio::runtime::{Builder, LocalOptions};
 
+use super::super::dbus::{Nid, NotificationsWrapperSignals};
+use super::super::transmission::{Payload, PayloadError};
+use super::{Desc, EventType, Flags, FulfilledJob, FulfilledJobResultType, Job, LogsManager};
 use crate::utils::{
     logger::Logger,
     macros::parse::{parse, split_once},
 };
-use super::super::dbus::{Nid, NotificationsWrapperSignals};
-use super::super::transmission::{Payload, PayloadError};
-use super::{Desc, EventType, Flags, FulfilledJob, FulfilledJobResultType, Job, LogsManager};
 
 macro_rules! derive_signal {
     ($name:ident, $canonical:literal, $data_name:ident, $signal:ident) => {
@@ -68,7 +68,10 @@ macro_rules! derive_signal {
             fn from_str_static(data: &str) -> Result<$name, PayloadError> {
                 let (id, $data_name) = split_once!(data, '#')?;
 
-                Ok($name::new(parse!(id, Nid, "Signal")?, $data_name.to_owned()))
+                Ok($name::new(
+                    parse!(id, Nid, "Signal")?,
+                    $data_name.to_owned(),
+                ))
             }
 
             fn to_string(&self) -> String {

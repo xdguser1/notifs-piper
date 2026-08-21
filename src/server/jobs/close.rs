@@ -2,14 +2,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::runtime::{Builder, LocalOptions};
 
-use crate::utils::{
-    logger::Logger,
-    macros::parse::{parse, split_once},
-};
 use super::super::dbus::{Nid, NotificationsWrapperSignals};
 use super::super::manager::LogsManager;
 use super::super::transmission::{Payload, PayloadError};
 use super::{Desc, EventType, Flags, FulfilledJob, FulfilledJobResultType, Job};
+use crate::utils::{
+    logger::Logger,
+    macros::parse::{parse, split_once},
+};
 
 pub type NotificationClosedRepr = u32;
 

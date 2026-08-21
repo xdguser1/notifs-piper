@@ -1,10 +1,10 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use crate::utils::macros::parse::{parse, split_once};
 use super::dbus::Nid;
 use super::manager::LogsManager;
 use super::transmission::{Payload, PayloadError};
+use crate::utils::macros::parse::{parse, split_once};
 
 pub(super) use self::acknowledge::*;
 pub use self::broadcast::*;
@@ -71,11 +71,17 @@ impl Payload for EventType {
             "cls" => Ok(EventType::Close(parse!(rest, Nid, "EventType")?)),
             "act" => {
                 let (nid, act) = split_once!(rest, '#')?;
-                Ok(EventType::ActionInvoked(parse!(nid, Nid, "EventType")?, act.to_owned()))
+                Ok(EventType::ActionInvoked(
+                    parse!(nid, Nid, "EventType")?,
+                    act.to_owned(),
+                ))
             }
             "acv" => {
                 let (nid, acv) = split_once!(rest, '#')?;
-                Ok(EventType::ActivationToken(parse!(nid, Nid, "EventType")?, acv.to_owned()))
+                Ok(EventType::ActivationToken(
+                    parse!(nid, Nid, "EventType")?,
+                    acv.to_owned(),
+                ))
             }
             _ => Err(PayloadError::new(
                 typ.to_owned(),
@@ -200,7 +206,10 @@ impl Payload for Desc {
     fn from_str_static(data: &str) -> Result<Desc, PayloadError> {
         let (first, second) = split_once!(data, '#')?;
 
-        Ok(Desc::new(parse!(first, Pid, "Desc")?, parse!(second, FlagsRepr, "Desc")?))
+        Ok(Desc::new(
+            parse!(first, Pid, "Desc")?,
+            parse!(second, FlagsRepr, "Desc")?,
+        ))
     }
 
     fn to_string(&self) -> String {
