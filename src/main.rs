@@ -131,8 +131,7 @@ async fn read(stream: &UnixStream) -> io::Result<Transmission> {
 
 fn main() -> io::Result<()> {
     let parsed = Cli::parse();
-    let path = env::var("XDG_RUNTIME_DIR")
-        .or(env::var("XDG_DATA_HOME"))
+    let path = env::var("XDG_DATA_HOME")
         .or(env::var("HOME").map(|val| val + "/.local/share"))
         .unwrap()
         + "/npiper";
