@@ -67,7 +67,7 @@ macro_rules! send_once_and_print {
     ($path:ident, $job:expr, $($flags:expr),*; $($pid:literal)?) => {(
         'inside: {
             let trans = try_block!(send_once!($path, $job, $($flags)*; $($pid)?), 'inside);
-            println!("{}", trans.to_string());
+            println!("{}", trans.data);
             Ok(())
         } as io::Result<()>
     )};
