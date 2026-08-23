@@ -1,3 +1,6 @@
+# Preview
+![A preview of the program](./docs/preview.gif)
+
 # Description
 Notifs-piper is yet another notification daemon. It aims to replace [statnot](https://github.com/halhen/statnot), as it is extremely limiting in its capabilities. Even though [the protocol](https://specifications.freedesktop.org/notification/latest/protocol.html) is aimed at graphical notification daemons such as [dunst](https://github.com/dunst-project/dunst), this throws that idea out of the window and lets users decide how they actually want to receive their notifications.
 
