@@ -6,7 +6,7 @@
       url = "github:nix-community/fenix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    nixpkgs.url = "nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
   };
 
   outputs = inputs: {
@@ -115,7 +115,7 @@
 
       config = lib.mkIf cfg.enable {
         systemd.user.services.notifs-piper = {
-          wantedBy = [ "multi-user.target" ];
+          wantedBy = [ "default.target" ];
           description = "Starts notifs-piper notification server.";
           serviceConfig = {
             Type = "simple";
@@ -123,7 +123,7 @@
               makeOption = opt: optn: if opt != null then "-${optn} ${builtins.toString opt}" else "";
             in
               ''
-                ${cfg.package} ${
+                ${cfg.package}/bin/notifs-piper daemon ${
                   makeOption cfg.file "f"
                 } ${
                   makeOption cfg.max "m"
