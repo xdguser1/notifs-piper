@@ -38,7 +38,7 @@ pub enum Sub {
         #[arg(short = 'o', long = "option", value_parser = opts_checker)]
         options: Vec<String>,
 
-        /// Adds all capabilities for the server. See procotol for the list.
+        /// Adds all capabilities for the server. Selects icon-multi instead of icon-static.
         #[arg(short, long, default_value_t = false)]
         all: bool,
 

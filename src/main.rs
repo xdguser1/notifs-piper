@@ -196,7 +196,9 @@ fn main() -> io::Result<()> {
             }
 
             if all {
-                CAPABILITIES.set(CAPABILITIES_ENUMERATED.to_vec()).unwrap();
+                let mut vec = CAPABILITIES_ENUMERATED.to_vec();
+                vec.retain(|stg| stg != &"icon-static");
+                CAPABILITIES.set(vec).unwrap();
             } else {
                 CAPABILITIES
                     .set(
