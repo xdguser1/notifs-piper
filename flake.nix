@@ -35,8 +35,8 @@
         src = fetchFromGitHub {
           owner = "xdguser1";
           repo = "notifs-piper";
-          rev = "v0.1.1";
-          hash = "sha256-68x6KX8gHqTnX3zyKJmZMlI8Q8LxHFcVmM8oQhpb+zs=";
+          rev = "v0.1.2";
+          hash = "sha256-UEKItmzdCk1uc0MmEyMF5YAdvqu5srtBISs8tEchdG0=";
         };
 
         cargoHash = "";
