@@ -30,7 +30,7 @@
         rustc = toolchain;
       }).buildRustPackage (finalAttrs: {
         pname = "notifs-piper";
-        version = "0.1.1";
+        version = "0.1.2";
 
         src = fetchFromGitHub {
           owner = "xdguser1";
